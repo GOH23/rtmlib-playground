@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   ObjectDetector,
   PoseDetector,
@@ -12,7 +12,51 @@ import {
   drawDetectionsOnCanvas,
   drawPoseOnCanvas,
   getCacheInfo,
+  MediaPipeObjectDetector,
+  MediaPipePoseDetector,
+  COCO_CLASSES,
 } from "rtmlib-ts";
+import {
+  Search,
+  User,
+  Box,
+  PawPrint,
+  Zap,
+  FileText,
+  Video,
+  Play,
+  Square,
+  Upload,
+  Cpu,
+  Gauge,
+  Layers,
+  Trash2,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Camera,
+  Image as ImageIcon,
+  Activity,
+  Clock,
+  Target,
+  ScanFace,
+  ChevronDown,
+  X,
+  Eye,
+  EyeOff,
+  Filter,
+  Grid3X3,
+  List,
+  Check,
+  Github,
+  ExternalLink,
+  Copy,
+  Terminal,
+  Monitor,
+  Aperture,
+  BoxSelect,
+  Brain,
+} from 'lucide-react';
 
 interface Detection {
   bbox: { x1: number; y1: number; x2: number; y2: number; confidence: number };
@@ -28,9 +72,225 @@ interface ModelStatus {
   error?: string;
 }
 
+function getBboxValue(det: any, key: 'x1' | 'y1' | 'x2' | 'y2'): number {
+  if (!det.bbox) return 0;
+  if (det.bbox[key] !== undefined) return Math.round(det.bbox[key]);
+  if (key === 'x1') return det.bbox.originX !== undefined ? Math.round(det.bbox.originX) : 0;
+  if (key === 'y1') return det.bbox.originY !== undefined ? Math.round(det.bbox.originY) : 0;
+  if (key === 'x2') {
+    if (det.bbox.originX !== undefined && det.bbox.width !== undefined) return Math.round(det.bbox.originX + det.bbox.width);
+    return 0;
+  }
+  if (key === 'y2') {
+    if (det.bbox.originY !== undefined && det.bbox.height !== undefined) return Math.round(det.bbox.originY + det.bbox.height);
+    return 0;
+  }
+  return 0;
+}
+
+// Custom Select Component
+interface CustomSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string; icon?: React.ReactNode }[];
+  placeholder?: string;
+  className?: string;
+}
+
+function CustomSelect({ value, onChange, options, placeholder, className = '' }: CustomSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  return (
+    <div ref={selectRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full p-4 rounded-xl border border-white/15 bg-slate-900/80 text-slate-100 font-medium cursor-pointer hover:border-blue-500/50 transition-all flex items-center justify-between gap-3"
+      >
+        <span className="flex items-center gap-2">
+          {selectedOption?.icon}
+          {selectedOption?.label || placeholder || 'Select...'}
+        </span>
+        <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-2 p-2 bg-slate-900/95 backdrop-blur-xl rounded-xl border border-white/15 shadow-2xl max-h-64 overflow-y-auto">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => { onChange(option.value); setIsOpen(false); }}
+              className={`w-full p-3 rounded-lg flex items-center gap-3 transition-all ${
+                value === option.value 
+                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
+                  : 'text-slate-300 hover:bg-slate-800/50'
+              }`}
+            >
+              {option.icon}
+              <span className="flex-1 text-left">{option.label}</span>
+              {value === option.value && <Check className="w-4 h-4" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Class Selector Component with Search
+interface ClassSelectorProps {
+  selectedClasses: string[];
+  onToggleClass: (cls: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+}
+
+function ClassSelector({ selectedClasses, onToggleClass, onSelectAll, onDeselectAll }: ClassSelectorProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const filteredClasses = useMemo(() => {
+    let classes = COCO_CLASSES;
+    if (searchQuery) {
+      classes = classes.filter(cls => cls.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    if (!showAll) {
+      classes = classes.slice(0, 20);
+    }
+    return classes;
+  }, [searchQuery, showAll]);
+
+  const selectedCount = selectedClasses.length;
+  const totalCount = COCO_CLASSES.length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header with search and actions */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search classes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 rounded-xl border border-white/15 bg-slate-900/80 text-slate-100 placeholder-slate-500 focus:border-blue-500/50 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+            className="p-3 rounded-xl border border-white/15 bg-slate-900/80 text-slate-400 hover:text-slate-200 transition-all"
+          >
+            {viewMode === 'grid' ? <List className="w-5 h-5" /> : <Grid3X3 className="w-5 h-5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats and actions */}
+      <div className="flex items-center justify-between flex-wrap gap-3 p-4 rounded-xl bg-slate-900/50 border border-white/10">
+        <div className="flex items-center gap-3">
+          <Filter className="w-5 h-5 text-blue-400" />
+          <span className="text-slate-400">
+            <span className="text-blue-400 font-bold">{selectedCount}</span> / {totalCount} selected
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onSelectAll}
+            className="px-4 py-2 rounded-lg bg-blue-500/20 text-blue-400 font-medium hover:bg-blue-500/30 transition-all text-sm"
+          >
+            Select All
+          </button>
+          <button
+            onClick={onDeselectAll}
+            className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 font-medium hover:bg-red-500/30 transition-all text-sm"
+          >
+            Deselect All
+          </button>
+        </div>
+      </div>
+
+      {/* Classes grid/list */}
+      <div className={viewMode === 'grid' 
+        ? 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-2 max-h-[400px] overflow-y-auto p-2' 
+        : 'flex flex-col gap-2 max-h-[400px] overflow-y-auto p-2'
+      }>
+        {filteredClasses.map((cls) => {
+          const isSelected = selectedClasses.includes(cls);
+          return (
+            <button
+              key={cls}
+              onClick={() => onToggleClass(cls)}
+              className={`p-3 rounded-xl flex items-center gap-3 transition-all ${
+                viewMode === 'list' ? 'justify-between' : 'flex-col text-center'
+              } ${
+                isSelected 
+                  ? 'bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 text-slate-100' 
+                  : 'bg-slate-900/50 border border-white/10 text-slate-400 hover:bg-slate-800/50 hover:border-white/20'
+              }`}
+            >
+              <span className={viewMode === 'list' ? 'font-medium' : 'text-sm font-medium'}>{cls}</span>
+              {isSelected ? (
+                <CheckCircle2 className="w-5 h-5 text-blue-400 flex-shrink-0" />
+              ) : (
+                <div className="w-5 h-5 rounded-full border-2 border-slate-600 flex-shrink-0" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Show more/less */}
+      {!searchQuery && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="w-full py-3 rounded-xl border border-white/15 bg-slate-900/50 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-all flex items-center justify-center gap-2"
+        >
+          {showAll ? (
+            <>
+              <EyeOff className="w-4 h-4" /> Show Less
+            </>
+          ) : (
+            <>
+              <Eye className="w-4 h-4" /> Show All {totalCount} Classes
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
 
   const [objectDetector, setObjectDetector] = useState<any>(null);
   const [poseDetector, setPoseDetector] = useState<any>(null);
@@ -38,14 +298,11 @@ export default function Home() {
   const [animalDetector, setAnimalDetector] = useState<any>(null);
 
   const [mode, setMode] = useState<'object' | 'pose' | 'pose3d' | 'animal'>('object');
+  const [detectorType, setDetectorType] = useState<'yolo' | 'mediapipe' | 'yolo-rtmw3d' | 'mediapipe-rtmw3d'>('yolo');
   const [perfMode, setPerfMode] = useState<'performance' | 'balanced' | 'lightweight'>('balanced');
-  const [backend, setBackend] = useState<'wasm' | 'webgpu'>(() => {
-    // Check if WebGPU is available
-    if (typeof navigator !== 'undefined' && (navigator as any).gpu) {
-      return 'webgpu';
-    }
-    // Fallback to WASM if WebGPU is not available
-    return 'wasm';
+  const [backend, setBackend] = useState<'wasm' | 'webgl' | 'webgpu' | 'webnn'>(() => {
+    if (typeof navigator !== 'undefined' && (navigator as any).gpu) return 'webgpu';
+    return 'webgl';
   });
   const [animalPoseModel, setAnimalPoseModel] = useState<'vitpose-s' | 'vitpose-b' | 'vitpose-l'>('vitpose-b');
   const [selectedClasses, setSelectedClasses] = useState<string[]>(['person']);
@@ -55,14 +312,16 @@ export default function Home() {
   const [useCamera, setUseCamera] = useState(false);
   const [hasImage, setHasImage] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [detectionInterval, setDetectionInterval] = useState<NodeJS.Timeout | null>(null);
   const [cacheInfo, setCacheInfo] = useState<{ size: string; cached: number } | null>(null);
   const [showDocs, setShowDocs] = useState(false);
-
-  // Performance optimization: process every Nth frame
   const [processEveryNFrames, setProcessEveryNFrames] = useState(3);
   const frameCountRef = useRef(0);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [showClassSelector, setShowClassSelector] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   const [modelStatus, setModelStatus] = useState<Record<string, ModelStatus>>({
     object: { loaded: false, loading: false },
@@ -71,509 +330,302 @@ export default function Home() {
     animal: { loaded: false, loading: false },
   });
 
-
+  const [detectorKey, setDetectorKey] = useState(0);
 
   useEffect(() => {
     async function loadCacheInfo() {
       const cacheInfo = await getCacheInfo();
-      setCacheInfo({
-        size: cacheInfo.totalSizeFormatted,
-        cached: cacheInfo.cachedModels.length,
-      });
+      setCacheInfo({ size: cacheInfo.totalSizeFormatted, cached: cacheInfo.cachedModels.length });
     }
     loadCacheInfo();
   }, []);
 
-  // Fallback detector initialization
-  const initDetectorWithFallback = async (
-    mode: 'object' | 'pose' | 'pose3d' | 'animal',
-    perfMode: 'performance' | 'balanced' | 'lightweight',
-    fallbackBackend: 'wasm'
-  ) => {
+  const copyCode = (code: string, id: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(id);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
+  const initDetectorWithFallback = async (mode: 'object' | 'pose' | 'pose3d' | 'animal') => {
     try {
       let detector: any;
-      const startTime = performance.now();
-
-      if (mode === 'object') {
-        detector = new ObjectDetector({
-          classes: selectedClasses,
-          mode: perfMode,
-          backend: fallbackBackend,
-          confidence: 0.3,
-          cache: true,
-        });
-      } else if (mode === 'pose') {
-        detector = new PoseDetector({
-          detConfidence: 0.5,
-          poseConfidence: 0.3,
-          backend: fallbackBackend,
-          cache: true,
-        });
-      } else if (mode === 'pose3d') {
-        detector = new Pose3DDetector({
-          detModel: "./end2end.onnx",
-          detConfidence: 0.45,
-          poseConfidence: 0.3,
-          backend: fallbackBackend,
-          cache: true,
-        });
-      } else if (mode === 'animal') {
-        detector = new AnimalDetector({
-          classes: selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null,
-          poseModelType: animalPoseModel,
-          detConfidence: 0.5,
-          poseConfidence: 0.3,
-          backend: fallbackBackend,
-          cache: true,
-        });
-      }
-
+      const be: 'wasm' | 'webgpu' | undefined = 'wasm';
+      if (mode === 'object') detector = new ObjectDetector({ classes: selectedClasses.length > 0 ? selectedClasses : null, mode: perfMode, backend: be, confidence: 0.3, cache: true });
+      else if (mode === 'pose') detector = new PoseDetector({ detConfidence: 0.5, poseConfidence: 0.3, backend: be, cache: true });
+      else if (mode === 'pose3d') detector = new Pose3DDetector({ detConfidence: 0.45, poseConfidence: 0.3, backend: be, cache: true, detectorType: detectorType === 'mediapipe-rtmw3d' ? 'mediapipe-rtmw3d' : 'yolo-rtmw3d' });
+      else if (mode === 'animal') detector = new AnimalDetector({ classes: selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null, poseModelType: animalPoseModel, detConfidence: 0.5, poseConfidence: 0.3, backend: be, cache: true });
       await detector.init();
-      const loadTime = Math.round(performance.now() - startTime);
-
       if (mode === 'object') setObjectDetector(detector);
       else if (mode === 'pose') setPoseDetector(detector);
       else if (mode === 'pose3d') setPose3DDetector(detector);
       else if (mode === 'animal') setAnimalDetector(detector);
-
-      setModelStatus(prev => ({
-        ...prev,
-        [mode]: { loaded: true, loading: false }
-      }));
-
-      console.log(`${mode} detector initialized with WASM fallback in ${loadTime}ms`);
+      setModelStatus(prev => ({ ...prev, [mode]: { loaded: true, loading: false } }));
     } catch (error) {
-      console.error(`Failed to load ${mode} detector with WASM fallback:`, error);
-      setModelStatus(prev => ({
-        ...prev,
-        [mode]: { loaded: false, loading: false, error: (error as Error).message }
-      }));
+      setModelStatus(prev => ({ ...prev, [mode]: { loaded: false, loading: false, error: (error as Error).message } }));
     }
   };
 
   useEffect(() => {
     async function initDetector() {
       const currentModel = modelStatus[mode];
-      if (currentModel.loaded || currentModel.loading) return;
-
+      if (currentModel.loading) return;
+      
+      const needsReinit = currentModel.loaded && (
+        (mode === 'object' && objectDetector?.config?.detectorType !== detectorType) ||
+        (mode === 'pose' && ((detectorType === 'mediapipe') !== (poseDetector?.constructor?.name === 'MediaPipePoseDetector'))) ||
+        (mode === 'pose3d' && pose3DDetector?.config?.detectorType !== (detectorType === 'mediapipe-rtmw3d' ? 'mediapipe-rtmw3d' : 'yolo-rtmw3d'))
+      );
+      
+      if (currentModel.loaded && !needsReinit) return;
+      
+      if (needsReinit) {
+        if (mode === 'object') setObjectDetector(null);
+        else if (mode === 'pose') setPoseDetector(null);
+        else if (mode === 'pose3d') setPose3DDetector(null);
+        setModelStatus(prev => ({ ...prev, [mode]: { loaded: false, loading: false } }));
+        return;
+      }
+      
       setModelStatus(prev => ({ ...prev, [mode]: { loaded: false, loading: true } }));
 
       try {
         let detector: any;
-        const startTime = performance.now();
-
-        if (mode === 'object') {
-          detector = new ObjectDetector({
-            classes: selectedClasses,
-            mode: perfMode,
-            backend: backend,
-            confidence: 0.3,
-            cache: true,
-          });
+        console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`🔧 [Playground] Creating detector:`);
+        console.log(`   Mode: ${mode}`);
+        console.log(`   Backend: ${backend}`);
+        console.log(`   DeviceType: gpu (default)`);
+        console.log(`   PowerPreference: high-performance (default)`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+        
+        if (detectorType === 'mediapipe' && mode === 'object') {
+          detector = new ObjectDetector({ detectorType: 'mediapipe', mediaPipeModelPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/latest/efficientdet_lite0.tflite', mediaPipeScoreThreshold: 0.5, mediaPipeMaxResults: -1, classes: selectedClasses.length > 0 ? selectedClasses : undefined });
+        } else if (detectorType === 'mediapipe' && mode === 'pose') {
+          detector = new MediaPipePoseDetector({ numPoses: 3, minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5 });
+        } else if (mode === 'object') {
+          detector = new ObjectDetector({ classes: selectedClasses.length > 0 ? selectedClasses : null, mode: perfMode, backend: backend as any, confidence: 0.3, cache: true, detectorType: 'yolo' });
         } else if (mode === 'pose') {
-          detector = new PoseDetector({
-            detConfidence: 0.5,
-            poseConfidence: 0.3,
-            backend: backend,
-            cache: true,
-          });
+          detector = new PoseDetector({ detConfidence: 0.5, poseConfidence: 0.3, backend: backend as any, cache: true, detectorType: 'yolo-rtmpose' });
         } else if (mode === 'pose3d') {
-          detector = new Pose3DDetector({
-
-            detConfidence: 0.1,
-            poseConfidence: 0.3,
-            backend: backend,
-            cache: true,  // Disable cache for large 3D model (352MB)
-          });
+          detector = new Pose3DDetector({ detConfidence: 0.45, poseConfidence: 0.3, backend: backend as any, cache: true, detectorType: detectorType === 'mediapipe-rtmw3d' ? 'mediapipe-rtmw3d' : 'yolo-rtmw3d' });
         } else if (mode === 'animal') {
-          detector = new AnimalDetector({
-            classes: selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null,
-            poseModelType: animalPoseModel,
-            detConfidence: 0.5,
-            poseConfidence: 0.3,
-            backend: backend,
-            cache: true,  // Disable cache for large ViTPose models
-          });
+          detector = new AnimalDetector({ classes: selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null, poseModelType: animalPoseModel, detConfidence: 0.5, poseConfidence: 0.3, backend: backend as any, cache: true });
         }
-
+        
+        console.log(`[Playground] Initializing ${mode} detector with type: ${detectorType}, backend: ${backend}`);
         await detector.init();
-        const loadTime = Math.round(performance.now() - startTime);
-
+        console.log(`[Playground] Detector initialized successfully`);
+        
         if (mode === 'object') setObjectDetector(detector);
         else if (mode === 'pose') setPoseDetector(detector);
         else if (mode === 'pose3d') setPose3DDetector(detector);
         else if (mode === 'animal') setAnimalDetector(detector);
-
-        setModelStatus(prev => ({
-          ...prev,
-          [mode]: { loaded: true, loading: false }
-        }));
-
-        console.log(`${mode} detector initialized in ${loadTime}ms`);
-      } catch (error) {
-        // If WebGPU fails, try fallback to WASM
-        const errorMsg = (error as Error).message;
-        if (backend === 'webgpu' && (errorMsg.includes('WebGPU') || errorMsg.includes('not supported') || errorMsg.includes('session'))) {
-          console.warn('WebGPU not available, falling back to WASM...');
-          setBackend('wasm');
-
-          // Retry with WASM
-          await initDetectorWithFallback(mode, perfMode, 'wasm');
+        setModelStatus(prev => ({ ...prev, [mode]: { loaded: true, loading: false } }));
+      } catch (error: any) {
+        console.error('[Playground] Initialization error:', error);
+        if (backend === 'webgpu' && error.message.includes('WebGPU')) {
+          setBackend('webgl' as any);
+          await initDetectorWithFallback(mode);
           return;
         }
-
-        console.error(`Failed to load ${mode} detector:`, error);
-        setModelStatus(prev => ({
-          ...prev,
-          [mode]: { loaded: false, loading: false, error: errorMsg }
-        }));
+        setModelStatus(prev => ({ ...prev, [mode]: { loaded: false, loading: false, error: error.message } }));
       }
     }
-
     initDetector();
-  }, [mode, perfMode, backend, animalPoseModel]);
+  }, [mode, perfMode, backend, animalPoseModel, detectorType, detectorKey]);
 
   useEffect(() => {
-    if (objectDetector) {
-      objectDetector.setClasses(selectedClasses.length > 0 ? selectedClasses : null);
-    }
+    if (objectDetector?.setClasses) objectDetector.setClasses(selectedClasses.length > 0 ? selectedClasses : null);
   }, [selectedClasses, objectDetector]);
 
   useEffect(() => {
-    if (animalDetector) {
-      animalDetector.setClasses(selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null);
-    }
+    setDetectorKey(k => k + 1);
+  }, [detectorType]);
+
+  useEffect(() => {
+    if (animalDetector?.setClasses) animalDetector.setClasses(selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null);
   }, [selectedAnimalClasses, animalDetector]);
 
   useEffect(() => {
     async function setupCamera() {
       if (useCamera && videoRef.current) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480 },
-          });
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
-        } catch (err) {
-          console.error('Camera error:', err);
-          setUseCamera(false);
-        }
+        } catch { setUseCamera(false); }
       } else if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
+        (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
         videoRef.current.srcObject = null;
       }
     }
-
     setupCamera();
   }, [useCamera]);
 
   const processDetection = async () => {
-    if (!canvasRef.current || !modelStatus[mode].loaded) return;
+    if (!canvasRef.current || !overlayRef.current) {
+      console.error('[Playground] Canvas not ready');
+      return;
+    }
+    if (!modelStatus[mode].loaded) {
+      console.error('[Playground] Model not loaded');
+      return;
+    }
+    if (isDetecting) return;
 
-    // Performance optimization: skip frames for video/camera
-    if (useCamera || videoSrc) {
-      frameCountRef.current++;
-      if (frameCountRef.current % processEveryNFrames !== 0) {
-        return;  // Skip this frame
-      }
+    if ((useCamera || videoSrc) && frameCountRef.current++ % processEveryNFrames !== 0) return;
+
+    const canvas = canvasRef.current, overlay = overlayRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const overlayCtx = overlay.getContext('2d', { willReadFrequently: true });
+    if (!ctx || !overlayCtx) {
+      console.error('[Playground] Context not ready');
+      return;
     }
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
+    let sourceWidth: number, sourceHeight: number;
+    if (imageRef.current && imageSrc) { sourceWidth = imageRef.current.naturalWidth; sourceHeight = imageRef.current.naturalHeight; }
+    else if (videoRef.current && (videoSrc || useCamera)) { sourceWidth = videoRef.current.videoWidth; sourceHeight = videoRef.current.videoHeight; }
+    else { sourceWidth = canvas.width; sourceHeight = canvas.height; }
+    
+    if (sourceWidth === 0 || sourceHeight === 0) {
+      console.error('[Playground] Invalid source dimensions');
+      return;
+    }
 
+    canvas.width = sourceWidth; canvas.height = sourceHeight;
+    overlay.width = sourceWidth; overlay.height = sourceHeight;
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+    setIsDetecting(true);
     let results: any[] = [];
     const startTime = performance.now();
 
-    if (mode === 'object' && objectDetector) {
-      if (useCamera && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        results = await objectDetector.detectFromVideo(videoRef.current, canvas);
-        drawDetectionsOnCanvas(ctx, results);
-      } else if (videoSrc && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        results = await objectDetector.detectFromVideo(videoRef.current, canvas);
-        drawDetectionsOnCanvas(ctx, results);
-      } else {
-        results = await objectDetector.detectFromCanvas(canvas);
-        drawDetectionsOnCanvas(ctx, results);
+    try {
+      let detector: any;
+      if (mode === 'object') detector = objectDetector;
+      else if (mode === 'pose') detector = poseDetector;
+      else if (mode === 'pose3d') detector = pose3DDetector;
+      else if (mode === 'animal') detector = animalDetector;
+
+      if (!detector) {
+        console.error('[Playground] No detector available');
+        return;
       }
-    } else if (mode === 'pose' && poseDetector) {
-      if (useCamera && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        results = await poseDetector.detectFromVideo(videoRef.current, canvas);
-        drawPoseOnCanvas(ctx, results);
-      } else if (videoSrc && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        results = await poseDetector.detectFromVideo(videoRef.current, canvas);
-        drawPoseOnCanvas(ctx, results);
+
+      if (videoRef.current && (useCamera || videoSrc)) {
+        ctx.drawImage(videoRef.current, 0, 0, sourceWidth, sourceHeight);
+        if (mode === 'pose3d') {
+          results = await detector.detectFromVideo(videoRef.current, canvas);
+          results = process3DResult(results, sourceWidth, sourceHeight);
+        } else {
+          results = await detector.detectFromVideo(videoRef.current, canvas);
+        }
+      } else if (imageRef.current && imageSrc) {
+        ctx.drawImage(imageRef.current, 0, 0, sourceWidth, sourceHeight);
+        if (mode === 'pose3d') {
+          results = await detector.detectFromImage(imageRef.current, canvas);
+          results = process3DResult(results, sourceWidth, sourceHeight);
+        } else {
+          results = await detector.detectFromImage(imageRef.current, canvas);
+        }
       } else {
-        results = await poseDetector.detectFromCanvas(canvas);
-        drawPoseOnCanvas(ctx, results);
+        if (mode === 'pose3d') {
+          results = await detector.detectFromCanvas(canvas);
+          results = process3DResult(results, sourceWidth, sourceHeight);
+        } else {
+          results = await detector.detectFromCanvas(canvas);
+        }
       }
-    } else if (mode === 'pose3d' && pose3DDetector) {
-      if (useCamera && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        const result3d = await pose3DDetector.detectFromVideo(videoRef.current, canvas);
-        results = process3DResult(result3d);
-        drawPoseOnCanvas(ctx, results);
-      } else if (videoSrc && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        const result3d = await pose3DDetector.detectFromVideo(videoRef.current, canvas);
-        results = process3DResult(result3d);
-        drawPoseOnCanvas(ctx, results);
-      } else {
-        const result3d = await pose3DDetector.detectFromCanvas(canvas);
-        results = process3DResult(result3d);
-        drawPoseOnCanvas(ctx, results);
-      }
-    } else if (mode === 'animal' && animalDetector) {
-      if (useCamera && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        results = await animalDetector.detectFromVideo(videoRef.current, canvas);
-        drawAnimalResults(ctx, results);
-      } else if (videoSrc && videoRef.current) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        results = await animalDetector.detectFromVideo(videoRef.current, canvas);
-        drawAnimalResults(ctx, results);
-      } else {
-        results = await animalDetector.detectFromCanvas(canvas);
-        drawAnimalResults(ctx, results);
-      }
+
+      if (mode === 'object') drawDetectionsOnCanvas(overlayCtx, results);
+      else if (mode === 'pose' || mode === 'pose3d') drawPoseOnCanvas(overlayCtx, results);
+      else if (mode === 'animal') drawAnimalResults(overlayCtx, results);
+
+      const detStats = (results as any).stats;
+      setDetections(results);
+      setStats({ time: Math.round(performance.now() - startTime), count: results.length, detTime: detStats?.detTime, poseTime: detStats?.poseTime });
+    } catch (error) {
+      console.error('[Playground] Detection error:', error);
+    } finally {
+      setIsDetecting(false);
     }
-
-    const endTime = performance.now();
-    const detStats = (results as any).stats;
-
-    setDetections(results);
-    setStats({
-      time: Math.round(endTime - startTime),
-      count: results.length,
-      detTime: detStats?.detTime,
-      poseTime: detStats?.poseTime,
-    });
   };
 
-  const process3DResult = (result3d: any): Detection[] => {
-    const keypoints = result3d.keypoints || [];
-    const keypoints2d = result3d.keypoints2d || [];
-    const scores = result3d.scores || [];
-    const stats = result3d.stats;
-
+  const process3DResult = (result3d: any, canvasWidth?: number, canvasHeight?: number): Detection[] => {
+    const keypoints = result3d.keypoints || [], keypoints2d = result3d.keypoints2d || [], scores = result3d.scores || [];
     const detections: Detection[] = [];
-
     for (let i = 0; i < keypoints.length; i++) {
-      const personKeypoints = keypoints[i];
-      const personKeypoints2d = keypoints2d[i];
-      const personScores = scores[i];
-
+      const personKeypoints2d = keypoints2d[i], personScores = scores[i];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const kpt of personKeypoints2d) {
-        minX = Math.min(minX, kpt[0]);
-        minY = Math.min(minY, kpt[1]);
-        maxX = Math.max(maxX, kpt[0]);
-        maxY = Math.max(maxY, kpt[1]);
-      }
-
-      detections.push({
-        bbox: {
-          x1: Math.max(0, minX - 20),
-          y1: Math.max(0, minY - 20),
-          x2: Math.min(canvasRef.current?.width || 640, maxX + 20),
-          y2: Math.min(canvasRef.current?.height || 480, maxY + 20),
-          confidence: personScores.reduce((a: number, b: number) => a + b, 0) / personScores.length,
-        },
-        keypoints: personKeypoints2d.map((kpt: number[], idx: number) => ({
-          x: kpt[0],
-          y: kpt[1],
-          score: personScores[idx],
-          visible: personScores[idx] > 0.3,
-        })),
-        keypoints3d: personKeypoints,
-      });
+      for (const kpt of personKeypoints2d) { minX = Math.min(minX, kpt[0]); minY = Math.min(minY, kpt[1]); maxX = Math.max(maxX, kpt[0]); maxY = Math.max(maxY, kpt[1]); }
+      const width = canvasWidth || canvasRef.current?.width || 640, height = canvasHeight || canvasRef.current?.height || 480;
+      detections.push({ bbox: { x1: Math.max(0, minX - 20), y1: Math.max(0, minY - 20), x2: Math.min(width, maxX + 20), y2: Math.min(height, maxY + 20), confidence: personScores.reduce((a: number, b: number) => a + b, 0) / personScores.length }, keypoints: personKeypoints2d.map((kpt: number[], idx: number) => ({ x: kpt[0], y: kpt[1], score: personScores[idx], visible: personScores[idx] > 0.3 })), keypoints3d: keypoints[i] });
     }
-
-    (detections as any).stats = stats;
+    (detections as any).stats = result3d.stats;
     return detections;
   };
 
   const drawAnimalResults = (ctx: CanvasRenderingContext2D, animals: any[]) => {
     const colors = ['#ff6b6b', '#51cf66', '#339af0', '#ffd43b', '#da77f2', '#ff922b'];
-
-    animals.forEach((animal, idx) => {
+    animals.forEach((animal: any, idx: number) => {
       const color = colors[idx % colors.length];
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(
-        animal.bbox.x1,
-        animal.bbox.y1,
-        animal.bbox.x2 - animal.bbox.x1,
-        animal.bbox.y2 - animal.bbox.y1
-      );
-
-      ctx.fillStyle = color;
-      ctx.font = 'bold 14px Inter, sans-serif';
-      ctx.fillText(
-        `${animal.className} ${(animal.bbox.confidence * 100).toFixed(0)}%`,
-        animal.bbox.x1,
-        animal.bbox.y1 - 8
-      );
-
-      animal.keypoints?.forEach((kp: any) => {
-        if (kp.visible) {
-          ctx.fillStyle = '#51cf66';
-          ctx.beginPath();
-          ctx.arc(kp.x, kp.y, 5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      });
+      ctx.strokeStyle = color; ctx.lineWidth = 3;
+      ctx.strokeRect(animal.bbox.x1, animal.bbox.y1, animal.bbox.x2 - animal.bbox.x1, animal.bbox.y2 - animal.bbox.y1);
+      ctx.fillStyle = color; ctx.font = 'bold 14px Inter, sans-serif';
+      ctx.fillText(`${animal.className} ${(animal.bbox.confidence * 100).toFixed(0)}%`, animal.bbox.x1, animal.bbox.y1 - 8);
+      animal.keypoints?.forEach((kp: any) => { if (kp.visible) { ctx.fillStyle = '#51cf66'; ctx.beginPath(); ctx.arc(kp.x, kp.y, 5, 0, Math.PI * 2); ctx.fill(); } });
     });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !canvasRef.current) return;
-
-    if (file.type.startsWith('video/')) {
-      const url = URL.createObjectURL(file);
-      setVideoSrc(url);
-      setHasImage(false);
-      setUseCamera(false);
-      setIsPlaying(false);
-
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        canvas.width = 640;
-        canvas.height = 480;
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '16px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Video loaded. Click Play to start detection', canvas.width / 2, canvas.height / 2);
-      }
-    } else {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = canvasRef.current!;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        ctx.drawImage(img, 0, 0);
-        setVideoSrc(null);
-        setUseCamera(false);
-        setHasImage(true);
-        setIsPlaying(false);
-        stopDetectionLoop();
-      };
-      img.src = URL.createObjectURL(file);
-    }
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    if (file.type.startsWith('video/')) { setVideoSrc(url); setImageSrc(null); setHasImage(false); setUseCamera(false); setIsPlaying(false); stopDetectionLoop(); }
+    else { setImageSrc(url); setVideoSrc(null); setUseCamera(false); setHasImage(true); setIsPlaying(false); stopDetectionLoop(); }
   };
 
   const startVideoDetection = async () => {
     if (!videoRef.current || !videoSrc) return;
-
     try {
-      videoRef.current.src = videoSrc;
-      videoRef.current.load();
-
-      await new Promise((resolve) => {
-        const timeout = setTimeout(resolve, 5000);
-        videoRef.current!.addEventListener('loadeddata', () => {
-          clearTimeout(timeout);
-          resolve(true);
-        }, { once: true });
-      });
-
-      if (canvasRef.current && videoRef.current) {
-        const videoWidth = videoRef.current.videoWidth || 640;
-        const videoHeight = videoRef.current.videoHeight || 480;
-        canvasRef.current.width = videoWidth;
-        canvasRef.current.height = videoHeight;
-      }
-
-      await videoRef.current.play();
-      setIsPlaying(true);
-      setHasImage(false);
-
-      const interval = setInterval(() => {
-        if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
-        processDetection();
-      }, 100);
-
-      setDetectionInterval(interval);
-    } catch (error) {
-      console.error('Error starting video:', error);
-      setIsPlaying(false);
-    }
+      videoRef.current.src = videoSrc; videoRef.current.load();
+      await new Promise((resolve) => { const t = setTimeout(resolve, 5000); videoRef.current!.addEventListener('loadeddata', () => { clearTimeout(t); resolve(true); }, { once: true }); });
+      if (canvasRef.current && videoRef.current) { canvasRef.current.width = videoRef.current.videoWidth || 640; canvasRef.current.height = videoRef.current.videoHeight || 480; }
+      await videoRef.current.play(); setIsPlaying(true); setHasImage(false);
+      setDetectionInterval(setInterval(() => { if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) processDetection(); }, 100));
+    } catch { setIsPlaying(false); }
   };
 
-  const stopDetectionLoop = () => {
-    if (detectionInterval) {
-      clearInterval(detectionInterval);
-      setDetectionInterval(null);
-    }
-    if (videoRef.current) {
-      videoRef.current.pause();
-    }
-    setIsPlaying(false);
-  };
+  const stopDetectionLoop = () => { if (detectionInterval) { clearInterval(detectionInterval); setDetectionInterval(null); } if (videoRef.current) videoRef.current.pause(); setIsPlaying(false); };
 
-  useEffect(() => {
-    return () => {
-      stopDetectionLoop();
-      if (videoSrc) URL.revokeObjectURL(videoSrc);
-    };
-  }, []);
+  useEffect(() => { return () => { stopDetectionLoop(); if (videoSrc) URL.revokeObjectURL(videoSrc); }; }, []);
+  useEffect(() => { if (!videoRef.current) return; const h = () => { setIsPlaying(false); stopDetectionLoop(); }; videoRef.current.addEventListener('ended', h); return () => videoRef.current?.removeEventListener('ended', h); }, [videoSrc]);
 
-  useEffect(() => {
-    if (!videoRef.current) return;
-    const handleVideoEnd = () => {
-      setIsPlaying(false);
-      stopDetectionLoop();
-    };
-    videoRef.current.addEventListener('ended', handleVideoEnd);
-    return () => videoRef.current?.removeEventListener('ended', handleVideoEnd);
-  }, [videoSrc]);
+  const toggleClass = (cls: string) => setSelectedClasses(prev => prev.includes(cls) ? prev.filter(c => c !== cls) : [...prev, cls]);
+  const toggleAnimalClass = (cls: string) => setSelectedAnimalClasses(prev => prev.includes(cls) ? prev.filter(c => c !== cls) : [...prev, cls]);
+  const selectAllClasses = () => setSelectedClasses([...COCO_CLASSES]);
+  const deselectAllClasses = () => setSelectedClasses([]);
 
-  const toggleClass = (className: string) => {
-    setSelectedClasses(prev =>
-      prev.includes(className)
-        ? prev.filter(c => c !== className)
-        : [...prev, className]
-    );
-  };
+  useEffect(() => { if (canvasRef.current) { const ctx = canvasRef.current.getContext('2d'); if (ctx) { ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height); } setDetections([]); setStats(null); } }, [mode]);
 
-  const toggleAnimalClass = (className: string) => {
-    setSelectedAnimalClasses(prev =>
-      prev.includes(className)
-        ? prev.filter(c => c !== className)
-        : [...prev, className]
-    );
-  };
+  const backendOptions = [
+    { value: 'webgpu', label: 'WebGPU (GPU)', icon: <Monitor className="w-5 h-5" /> },
+    { value: 'webgl', label: 'WebGL (GPU)', icon: <Aperture className="w-5 h-5" /> },
+    { value: 'webnn', label: 'WebNN (AI Accelerator)', icon: <Cpu className="w-5 h-5" /> },
+    { value: 'wasm', label: 'WASM (CPU)', icon: <Terminal className="w-5 h-5" /> },
+  ];
 
-  useEffect(() => {
-    if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      }
-      setDetections([]);
-      setStats(null);
-    }
-  }, [mode]);
+  const modeIcons = { object: Search, pose: User, pose3d: Box, animal: PawPrint };
+  const ModeIcon = modeIcons[mode];
 
   if (modelStatus[mode].loading) {
     return (
-      <div style={styles.container}>
-        <div style={styles.loadingScreen}>
-          <div style={styles.spinner}></div>
-          <h2 style={styles.loadingTitle}>Loading {mode === 'pose3d' ? '3D Pose' : mode.charAt(0).toUpperCase() + mode.slice(1)} Detector...</h2>
-          <p style={styles.loadingText}>This may take a moment on first load.</p>
+      <div className="animated-bg min-h-screen flex items-center justify-center">
+        <div className="text-center p-8 glass-card rounded-3xl">
+          <Loader2 className="w-16 h-16 mx-auto mb-6 text-blue-400 animate-spin" />
+          <h2 className="text-2xl font-bold gradient-text mb-2">Loading {mode === 'pose3d' ? '3D Pose' : mode} Detector...</h2>
+          <p className="text-slate-400">Initializing AI models</p>
         </div>
       </div>
     );
@@ -581,755 +633,539 @@ export default function Home() {
 
   if (modelStatus[mode].error) {
     return (
-      <div style={styles.container}>
-        <div style={styles.errorScreen}>
-          <div style={styles.errorIcon}>❌</div>
-          <h2 style={styles.errorTitle}>Failed to Load Model</h2>
-          <p style={styles.errorText}>{modelStatus[mode].error}</p>
-          <button
-            style={styles.retryButton}
-            onClick={() => setModelStatus(prev => ({ ...prev, [mode]: { loaded: false, loading: true } }))}
-          >
-            Try Again
-          </button>
+      <div className="animated-bg min-h-screen flex items-center justify-center p-4">
+        <div className="text-center p-8 glass-card rounded-3xl max-w-md">
+          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
+          <h2 className="text-2xl font-bold text-red-400 mb-4">Failed to Load Model</h2>
+          <p className="text-slate-400 mb-6 break-words">{modelStatus[mode].error}</p>
+          <button onClick={() => setModelStatus(prev => ({ ...prev, [mode]: { loaded: false, loading: true } }))} className="btn-glow px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold rounded-2xl shadow-lg">Try Again</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
-      {/* Header */}
-      <header style={styles.header}>
-        <div style={styles.headerContent}>
-          <div>
-            <h1 style={styles.title}>🎯 rtmlib-ts Playground</h1>
-            <p style={styles.subtitle}>Real-time AI Vision: Object Detection, 2D/3D Pose & Animal Detection</p>
+    <div className="animated-bg min-h-screen">
+      <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8">
+        {/* Header */}
+        <header className="mb-8 p-6 sm:p-8 glass-card rounded-3xl">
+          <div className="flex justify-between items-center flex-wrap gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl">
+                <Activity className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold gradient-text mb-2 neon-blue">rtmlib-ts Playground</h1>
+                <p className="text-slate-400 text-sm sm:text-base">Real-time AI Vision: Object Detection, 2D/3D Pose & Animal Detection</p>
+              </div>
+            </div>
+            <button onClick={() => setShowDocs(!showDocs)} className="btn-glow flex items-center gap-2 px-6 py-3 rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-slate-100 font-semibold hover:from-purple-500/40 hover:to-blue-500/40 transition-all">
+              <FileText className="w-5 h-5" />
+              {showDocs ? 'Hide Docs' : 'Quick Docs'}
+            </button>
           </div>
-          <button
-            style={styles.docsButton}
-            onClick={() => setShowDocs(!showDocs)}
+        </header>
+
+        {/* Documentation */}
+        {showDocs && (
+          <div className="mb-8 p-6 glass-card rounded-3xl card-enter">
+            {/* GitHub Link */}
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-2xl border border-blue-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl">
+                  <Github className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-100">rtmlib-ts on GitHub</h3>
+                  <p className="text-slate-400 text-sm">TypeScript port of rtmlib for browser-based AI inference</p>
+                </div>
+              </div>
+              <a
+                href="https://github.com/GOH23/rtmlib-ts"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-blue-500/25 transition-all"
+              >
+                <ExternalLink className="w-5 h-5" />
+                View on GitHub
+              </a>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {[
+                {
+                  icon: Search,
+                  title: 'Object Detection',
+                  desc: 'Detect 80 COCO classes using YOLOv12 or MediaPipe EfficientDet',
+                  code: `import { ObjectDetector } from 'rtmlib-ts';
+
+// Initialize with YOLO
+const detector = new ObjectDetector({
+  model: 'https://huggingface.co/demon2233/rtmlib-ts/resolve/main/yolo/yolov12n.onnx',
+  classes: ['person', 'car', 'dog'],
+  confidence: 0.5,
+  inputSize: [416, 416],
+  backend: 'webgl',
+});
+await detector.init();
+
+// Detect from canvas
+const results = await detector.detectFromCanvas(canvas);
+console.log(\`Found \${results.length} objects\`);`,
+                  id: 'object'
+                },
+                {
+                  icon: User,
+                  title: 'Pose Estimation (2D)',
+                  desc: '17 keypoints (COCO) with RTMW or 33 with MediaPipe BlazePose',
+                  code: `import { PoseDetector } from 'rtmlib-ts';
+
+// Initialize with YOLO + RTMW
+const detector = new PoseDetector({
+  detModel: 'https://huggingface.co/demon2233/rtmlib-ts/resolve/main/yolo/yolov12n.onnx',
+  poseModel: 'https://huggingface.co/demon2233/rtmlib-ts/resolve/main/rtmpose/end2end.onnx',
+  detInputSize: [416, 416],
+  poseInputSize: [384, 288],
+  detConfidence: 0.5,
+  poseConfidence: 0.3,
+  backend: 'webgl',
+});
+await detector.init();
+
+const poses = await detector.detectFromCanvas(canvas);
+console.log(\`Found \${poses.length} people\`);`,
+                  id: 'pose'
+                },
+                {
+                  icon: Box,
+                  title: 'Pose Estimation (3D)',
+                  desc: '3D pose with Z-coordinates in meters using RTMW3D-X',
+                  code: `import { Pose3DDetector } from 'rtmlib-ts';
+
+// Initialize with YOLO + RTMW3D
+const detector = new Pose3DDetector({
+  detModel: 'https://huggingface.co/demon2233/rtmlib-ts/resolve/main/yolo/yolov12n.onnx',
+  poseModel: 'https://huggingface.co/Soykaf/RTMW3D-x/resolve/main/onnx/rtmw3d-x.onnx',
+  detInputSize: [640, 640],
+  poseInputSize: [288, 384],
+  detConfidence: 0.45,
+  poseConfidence: 0.3,
+  backend: 'webgl',
+  detectorType: 'yolo-rtmw3d', // or 'mediapipe-rtmw3d' for faster
+});
+await detector.init();
+
+const result = await detector.detectFromCanvas(canvas);
+console.log(result.keypoints[0][0]); // [x, y, z] in meters`,
+                  id: 'pose3d'
+                },
+                {
+                  icon: PawPrint,
+                  title: 'Animal Detection',
+                  desc: '30 animal species with ViTPose++ pose estimation',
+                  code: `import { AnimalDetector } from 'rtmlib-ts';
+
+// Initialize with ViTPose-B
+const detector = new AnimalDetector({
+  poseModelType: 'vitpose-b',
+  classes: ['dog', 'cat', 'horse'],
+  detConfidence: 0.5,
+  poseConfidence: 0.3,
+  backend: 'webgl',
+});
+await detector.init();
+
+const animals = await detector.detectFromCanvas(canvas);
+console.log(\`Found \${animals.length} animals\`);`,
+                  id: 'animal'
+                },
+              ].map((card) => {
+                const Icon = card.icon;
+                const isCopied = copiedCode === card.id;
+                return (
+                  <div key={card.id} className="p-5 rounded-2xl border bg-blue-500/10 border-blue-500/20 glass-card-hover">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Icon className="w-6 h-6 text-blue-400" />
+                      <h3 className="text-lg font-bold text-slate-100">{card.title}</h3>
+                    </div>
+                    <p className="text-slate-400 text-sm mb-4">{card.desc}</p>
+                    <div className="relative">
+                      <pre className="block p-4 bg-black/60 rounded-xl text-xs text-green-400 font-mono overflow-x-auto whitespace-pre-wrap border border-white/10">
+                        <code>{card.code}</code>
+                      </pre>
+                      <button
+                        onClick={() => copyCode(card.code, card.id)}
+                        className="absolute top-3 right-3 p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700/80 transition-all"
+                        title="Copy code"
+                      >
+                        {isCopied ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-400" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* MediaPipe + RTMW3D Card */}
+            <div className="mt-4 p-5 rounded-2xl border bg-green-500/10 border-green-500/30 glass-card-hover">
+              <div className="flex items-center gap-3 mb-3">
+                <Zap className="w-6 h-6 text-green-400" />
+                <h3 className="text-lg font-bold text-slate-100">MediaPipe + RTMW3D (FASTEST)</h3>
+              </div>
+              <p className="text-slate-400 text-sm mb-4">Best combination: MediaPipe for detection (fast) + RTMW3D for 3D pose (accurate). 2-3x faster than YOLO+3D.</p>
+              <div className="relative">
+                <pre className="block p-4 bg-black/60 rounded-xl text-xs text-green-400 font-mono overflow-x-auto whitespace-pre-wrap border border-white/10">
+                  <code>{`import { MediaPipeObject3DPoseDetector } from 'rtmlib-ts';
+
+// Initialize MediaPipe + RTMW3D
+const detector = new MediaPipeObject3DPoseDetector({
+  mpScoreThreshold: 0.5,
+  poseConfidence: 0.3,
+  backend: 'webgpu',
+  personsOnly: true,
+});
+await detector.init();
+
+const result = await detector.detectFromCanvas(canvas);
+console.log(result.keypoints[0][0]); // [x, y, z] in meters`}</code>
+                </pre>
+                <button
+                  onClick={() => copyCode(`import { MediaPipeObject3DPoseDetector } from 'rtmlib-ts';
+
+// Initialize MediaPipe + RTMW3D
+const detector = new MediaPipeObject3DPoseDetector({
+  mpScoreThreshold: 0.5,
+  poseConfidence: 0.3,
+  backend: 'webgpu',
+  personsOnly: true,
+});
+await detector.init();
+
+const result = await detector.detectFromCanvas(canvas);
+console.log(result.keypoints[0][0]); // [x, y, z] in meters`, 'mp-pose3d')}
+                  className="absolute top-3 right-3 p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700/80 transition-all"
+                  title="Copy code"
+                >
+                  {copiedCode === 'mp-pose3d' ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6 p-6 glass-card rounded-3xl">
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Target className="w-4 h-4" /> Mode
+            </label>
+            <CustomSelect
+              value={mode}
+              onChange={(v) => setMode(v as any)}
+              options={[
+                { value: 'object', label: 'Object Detection', icon: <Search className="w-5 h-5" /> },
+                { value: 'pose', label: 'Pose Estimation (2D)', icon: <User className="w-5 h-5" /> },
+                { value: 'pose3d', label: 'Pose Estimation (3D)', icon: <Box className="w-5 h-5" /> },
+                { value: 'animal', label: 'Animal Detection', icon: <PawPrint className="w-5 h-5" /> },
+              ]}
+            />
+          </div>
+
+          {(mode === 'object' || mode === 'pose' || mode === 'pose3d') && (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <Layers className="w-4 h-4" /> Detector Type
+              </label>
+              <CustomSelect
+                value={detectorType}
+                onChange={(v) => setDetectorType(v as any)}
+                options={mode === 'pose3d' ? [
+                  { value: 'yolo-rtmw3d', label: 'YOLO + RTMW3D', icon: <Target className="w-5 h-5" /> },
+                  { value: 'mediapipe-rtmw3d', label: 'MediaPipe + RTMW3D (FAST)', icon: <Zap className="w-5 h-5" /> },
+                ] : [
+                  { value: 'yolo', label: 'YOLO (ONNX)', icon: <Target className="w-5 h-5" /> },
+                  { value: 'mediapipe', label: 'MediaPipe (TFLite)', icon: <Brain className="w-5 h-5" /> },
+                ]}
+              />
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Gauge className="w-4 h-4" /> Performance
+            </label>
+            <CustomSelect
+              value={perfMode}
+              onChange={(v) => setPerfMode(v as any)}
+              options={[
+                { value: 'performance', label: 'Performance (640×640)', icon: <Zap className="w-5 h-5" /> },
+                { value: 'balanced', label: 'Balanced (416×416)', icon: <BoxSelect className="w-5 h-5" /> },
+                { value: 'lightweight', label: 'Lightweight (320×320)', icon: <Gauge className="w-5 h-5" /> },
+              ]}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Cpu className="w-4 h-4" /> Backend
+            </label>
+            <CustomSelect
+              value={backend}
+              onChange={(v) => setBackend(v as any)}
+              options={backendOptions}
+            />
+          </div>
+
+          {(useCamera || videoSrc) && (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Frame Skip</label>
+              <CustomSelect
+                value={String(processEveryNFrames)}
+                onChange={(v) => setProcessEveryNFrames(Number(v))}
+                options={[
+                  { value: '1', label: 'Every frame' },
+                  { value: '2', label: 'Every 2nd frame' },
+                  { value: '3', label: 'Every 3rd (recommended)' },
+                  { value: '4', label: 'Every 4th frame' },
+                  { value: '5', label: 'Every 5th frame' },
+                ]}
+              />
+            </div>
+          )}
+
+          {mode === 'animal' && (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Animal Model</label>
+              <CustomSelect
+                value={animalPoseModel}
+                onChange={(v) => setAnimalPoseModel(v as any)}
+                options={(Object.keys(VITPOSE_MODELS) as Array<keyof typeof VITPOSE_MODELS>).map(key => ({
+                  value: key,
+                  label: `${VITPOSE_MODELS[key].name} - ${VITPOSE_MODELS[key].ap} AP`,
+                }))}
+              />
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Video className="w-4 h-4" /> Input Source
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => { setUseCamera(!useCamera); setVideoSrc(null); stopDetectionLoop(); }} className={`flex items-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all ${useCamera ? 'bg-gradient-to-r from-cyan-400 to-green-400 text-slate-900' : 'bg-blue-500/20 text-slate-100 border border-white/15'}`}>
+                <Camera className="w-4 h-4" /> {useCamera ? 'On' : 'Camera'}
+              </button>
+              {videoSrc && (
+                <button onClick={isPlaying ? stopDetectionLoop : startVideoDetection} className={`flex items-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all ${isPlaying ? 'bg-gradient-to-r from-green-400 to-cyan-400 text-slate-900' : 'bg-gradient-to-r from-cyan-400 to-green-400 text-slate-900'}`}>
+                  {isPlaying ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  {isPlaying ? 'Stop' : 'Play'}
+                </button>
+              )}
+            </div>
+            <label className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl text-center cursor-pointer hover:shadow-lg hover:shadow-blue-500/25 transition-all text-sm">
+              <Upload className="w-4 h-4" /> Upload
+              <input type="file" accept="image/*,video/*" onChange={handleFileUpload} className="hidden" />
+            </label>
+          </div>
+
+          {mode === 'object' && (
+            <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-3 xl:col-span-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                  <Filter className="w-4 h-4" /> Classes ({selectedClasses.length} selected)
+                </label>
+                <button
+                  onClick={() => setShowClassSelector(!showClassSelector)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${showClassSelector ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-slate-900/50 text-slate-400 border border-white/10 hover:bg-slate-800/50'}`}
+                >
+                  {showClassSelector ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showClassSelector ? 'Hide Selector' : 'Show All 80 Classes'}
+                </button>
+              </div>
+              {showClassSelector ? (
+                <ClassSelector
+                  selectedClasses={selectedClasses}
+                  onToggleClass={toggleClass}
+                  onSelectAll={selectAllClasses}
+                  onDeselectAll={deselectAllClasses}
+                />
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selectedClasses.slice(0, 10).map(cls => (
+                    <span key={cls} className="px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 text-sm border border-blue-500/30">{cls}</span>
+                  ))}
+                  {selectedClasses.length > 10 && (
+                    <span className="px-3 py-1.5 rounded-lg bg-slate-900/50 text-slate-400 text-sm border border-white/10">+{selectedClasses.length - 10} more</span>
+                  )}
+                  {selectedClasses.length === 0 && (
+                    <span className="text-slate-500 text-sm">No classes selected</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode === 'animal' && (
+            <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-3 xl:col-span-4">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Animal Classes</label>
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                {['dog', 'cat', 'horse', 'zebra', 'elephant', 'tiger', 'lion', 'panda'].map(cls => (
+                  <label key={cls} className="flex items-center gap-2 text-sm p-3 bg-blue-500/10 rounded-xl cursor-pointer hover:bg-blue-500/20 transition-all text-slate-100">
+                    <input type="checkbox" checked={selectedAnimalClasses.includes(cls)} onChange={() => toggleAnimalClass(cls)} className="w-4 h-4 accent-blue-500" />{cls}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button 
+            onClick={processDetection} 
+            disabled={isDetecting || !modelStatus[mode].loaded}
+            className="sm:col-span-2 lg:col-span-3 xl:col-span-4 py-5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl hover:shadow-blue-500/25 transition-all text-lg btn-glow disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale flex items-center justify-center gap-3"
           >
-            {showDocs ? '📖 Hide Docs' : '📖 Quick Docs'}
+            {isDetecting ? (
+              <>
+                <Loader2 className="w-6 h-6 animate-spin" />
+                Detecting...
+              </>
+            ) : (
+              <>
+                <ScanFace className="w-6 h-6" />
+                Run Detection
+              </>
+            )}
           </button>
         </div>
-      </header>
 
-      {/* Documentation */}
-      {showDocs && (
-        <div style={styles.docsPanel}>
-          <div style={styles.docsGrid}>
-            <div style={styles.docCard}>
-              <h3 style={styles.docCardTitle}>🔍 Object Detection</h3>
-              <p style={styles.docCardText}>Detect 80 COCO classes (person, car, dog, etc.) using YOLOv12.</p>
-              <code style={styles.code}>new ObjectDetector({'{'} classes: ['person'] {'}'})</code>
+        {/* Canvas Container */}
+        <div className="relative rounded-3xl overflow-hidden glass-card mb-6 shadow-2xl canvas-container">
+          {imageSrc && (
+            <img ref={imageRef} src={imageSrc} alt="Uploaded" className="media-element" onLoad={(e) => { const img = e.target as HTMLImageElement; if (canvasRef.current && overlayRef.current) { canvasRef.current.width = img.naturalWidth; canvasRef.current.height = img.naturalHeight; overlayRef.current.width = img.naturalWidth; overlayRef.current.height = img.naturalHeight; } }} />
+          )}
+          {videoSrc && !useCamera && (
+            <video ref={videoRef} muted loop playsInline className="media-element" onLoadedMetadata={() => { if (canvasRef.current && videoRef.current && overlayRef.current) { canvasRef.current.width = videoRef.current.videoWidth; canvasRef.current.height = videoRef.current.videoHeight; overlayRef.current.width = videoRef.current.videoWidth; overlayRef.current.height = videoRef.current.videoHeight; } }} />
+          )}
+          {useCamera && (
+            <video ref={videoRef} muted playsInline autoPlay className="media-element" onLoadedMetadata={() => { if (canvasRef.current && videoRef.current && overlayRef.current) { canvasRef.current.width = videoRef.current.videoWidth; canvasRef.current.height = videoRef.current.videoHeight; overlayRef.current.width = videoRef.current.videoWidth; overlayRef.current.height = videoRef.current.videoHeight; } }} />
+          )}
+          <canvas ref={canvasRef} className="canvas-overlay opacity-0 pointer-events-none" width={640} height={480} />
+          <canvas ref={overlayRef} className="canvas-overlay pointer-events-none" width={640} height={480} />
+          
+          {!modelStatus[mode].loaded && !modelStatus[mode].loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-40">
+              <div className="text-center p-6 glass-card rounded-2xl">
+                <AlertCircle className="w-12 h-12 mx-auto mb-4 text-yellow-400" />
+                <p className="text-slate-300 font-semibold">Model not loaded</p>
+                <p className="text-slate-400 text-sm mt-2">Select a mode and wait for initialization</p>
+              </div>
             </div>
-            <div style={styles.docCard}>
-              <h3 style={styles.docCardTitle}>🧍 Pose Estimation (2D)</h3>
-              <p style={styles.docCardText}>Detect 17 body keypoints using RTMW model.</p>
-              <code style={styles.code}>new PoseDetector()</code>
-            </div>
-            <div style={styles.docCard}>
-              <h3 style={styles.docCardTitle}>🎭 Pose Estimation (3D)</h3>
-              <p style={styles.docCardText}>3D pose estimation with Z-coordinates in meters using RTMW3D-X.</p>
-              <code style={styles.code}>new Pose3DDetector()</code>
-            </div>
-            <div style={styles.docCard}>
-              <h3 style={styles.docCardTitle}>🦁 Animal Detection</h3>
-              <p style={styles.docCardText}>Detect 30 animal species with ViTPose++ pose estimation.</p>
-              <code style={styles.code}>new AnimalDetector({'{'} poseModelType: 'vitpose-b' {'}'})</code>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Controls */}
-      <div style={styles.controls}>
-        <div style={styles.controlGroup}>
-          <label style={styles.label}>Mode</label>
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as 'object' | 'pose' | 'pose3d' | 'animal')}
-            style={styles.select}
-          >
-            <option value="object">🔍 Object Detection</option>
-            <option value="pose">🧍 Pose Estimation (2D)</option>
-            <option value="pose3d">🎭 Pose Estimation (3D)</option>
-            <option value="animal">🦁 Animal Detection</option>
-          </select>
+          )}
         </div>
 
-        <div style={styles.controlGroup}>
-          <label style={styles.label}>Performance</label>
-          <select
-            value={perfMode}
-            onChange={(e) => setPerfMode(e.target.value as any)}
-            style={styles.select}
-          >
-            <option value="performance">⚡ Performance (640×640)</option>
-            <option value="balanced">⚖️ Balanced (416×416)</option>
-            <option value="lightweight">🚀 Lightweight (320×320)</option>
-          </select>
+        {/* Status badges */}
+        <div className="flex flex-wrap gap-3 mb-6">
+          {videoSrc && (
+            <div className={`badge ${isPlaying ? 'badge-green' : 'badge-purple'}`}>
+              {isPlaying ? <Play className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+              {isPlaying ? 'Playing' : 'Paused'}
+            </div>
+          )}
+          {mode === 'pose3d' && (
+            <div className="badge badge-blue">
+              <Box className="w-4 h-4" /> 3D Mode: Z in meters
+            </div>
+          )}
+          {mode === 'animal' && (
+            <div className="badge badge-blue">
+              <PawPrint className="w-4 h-4" /> {VITPOSE_MODELS[animalPoseModel].name} ({VITPOSE_MODELS[animalPoseModel].ap} AP)
+            </div>
+          )}
+          {modelStatus[mode].loaded && (
+            <div className="badge badge-green">
+              <CheckCircle2 className="w-4 h-4" /> Ready
+            </div>
+          )}
         </div>
 
-        <div style={styles.controlGroup}>
-          <label style={styles.label}>Backend</label>
-          <select
-            value={backend}
-            onChange={(e) => setBackend(e.target.value as any)}
-            style={styles.select}
-          >
-            <option value="wasm">💻 WASM (CPU)</option>
-            <option value="webgpu">🎮 WebGPU (GPU)</option>
-          </select>
-        </div>
-
-        {/* Performance optimization: Frame skipper */}
-        {(useCamera || videoSrc) && (
-          <div style={styles.controlGroup}>
-            <label style={styles.label}>⚡ Process Every Nth Frame</label>
-            <select
-              value={processEveryNFrames}
-              onChange={(e) => setProcessEveryNFrames(Number(e.target.value))}
-              style={styles.select}
-            >
-              <option value={1}>Every frame (slow)</option>
-              <option value={2}>Every 2nd frame</option>
-              <option value={3}>Every 3rd frame (recommended)</option>
-              <option value={4}>Every 4th frame</option>
-              <option value={5}>Every 5th frame (fast)</option>
-            </select>
-            <small style={styles.hint}>
-              Higher = faster but less smooth
-            </small>
-          </div>
-        )}
-
-        {mode === 'animal' && (
-          <div style={styles.controlGroup}>
-            <label style={styles.label}>Animal Pose Model</label>
-            <select
-              value={animalPoseModel}
-              onChange={(e) => setAnimalPoseModel(e.target.value as any)}
-              style={styles.select}
-            >
-              {(Object.keys(VITPOSE_MODELS) as Array<keyof typeof VITPOSE_MODELS>).map((key) => (
-                <option key={key} value={key}>
-                  {VITPOSE_MODELS[key].name} - {VITPOSE_MODELS[key].ap} AP
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div style={styles.controlGroup}>
-          <label style={styles.label}>Input Source</label>
-          <div style={styles.buttonGroup}>
-            <button
-              onClick={() => {
-                setUseCamera(!useCamera);
-                setVideoSrc(null);
-                setHasImage(false);
-                stopDetectionLoop();
-              }}
-              style={{
-                ...styles.button,
-                background: useCamera ? 'linear-gradient(135deg, #00d9ff, #00ff88)' : undefined,
-                color: useCamera ? '#000' : '#fff',
-              }}
-            >
-              {useCamera ? '📹 Camera On' : '📷 Camera'}
-            </button>
-            {videoSrc && (
-              <button
-                onClick={isPlaying ? stopDetectionLoop : startVideoDetection}
-                style={{
-                  ...styles.button,
-                  background: isPlaying ? 'linear-gradient(135deg, #00ff88, #00d9ff)' : 'linear-gradient(135deg, #00d9ff, #00ff88)',
-                  color: '#000',
-                }}
-              >
-                {isPlaying ? '⏹ Stop' : '▶ Play'}
-              </button>
+        {/* Stats */}
+        {stats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <div className="p-6 glass-card rounded-2xl text-center glass-card-hover">
+              <Target className="w-10 h-10 mx-auto mb-2 text-green-400" />
+              <div className="text-4xl font-extrabold gradient-text-green mb-2">{stats.count}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Detections</div>
+            </div>
+            <div className="p-6 glass-card rounded-2xl text-center glass-card-hover">
+              <Clock className="w-10 h-10 mx-auto mb-2 text-green-400" />
+              <div className="text-4xl font-extrabold gradient-text-green mb-2">{stats.time}ms</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Total Time</div>
+            </div>
+            {stats.detTime && (
+              <div className="p-6 glass-card rounded-2xl text-center glass-card-hover">
+                <Zap className="w-10 h-10 mx-auto mb-2 text-green-400" />
+                <div className="text-4xl font-extrabold gradient-text-green mb-2">{stats.detTime}ms</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Detection</div>
+              </div>
+            )}
+            {stats.poseTime && (
+              <div className="p-6 glass-card rounded-2xl text-center glass-card-hover">
+                <User className="w-10 h-10 mx-auto mb-2 text-green-400" />
+                <div className="text-4xl font-extrabold gradient-text-green mb-2">{stats.poseTime}ms</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Pose</div>
+              </div>
             )}
           </div>
-          <label style={styles.fileLabel}>
-            📁 Upload Image/Video
-            <input
-              type="file"
-              accept="image/*,video/*"
-              onChange={handleFileUpload}
-              style={{ display: 'none' }}
-            />
-          </label>
-        </div>
+        )}
 
-        {mode === 'object' && (
-          <div style={styles.controlGroup}>
-            <label style={styles.label}>Classes</label>
-            <div style={styles.classGrid}>
-              {['person', 'car', 'dog', 'cat', 'bicycle', 'bus', 'truck'].map(cls => (
-                <label key={cls} style={styles.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={selectedClasses.includes(cls)}
-                    onChange={() => toggleClass(cls)}
-                  />
-                  {cls}
-                </label>
-              ))}
+        {/* Cache */}
+        {cacheInfo && (
+          <div className="flex justify-between items-center p-5 glass-card rounded-2xl mb-6">
+            <div className="flex items-center gap-3 text-slate-400">
+              <Layers className="w-5 h-5" />
+              <span>Cache:</span>
+              <span className="text-green-400 font-bold">{cacheInfo.size}</span>
+              <span className="text-slate-500 text-sm">({cacheInfo.cached} models)</span>
             </div>
+            <button onClick={async () => { await clearModelCache(); setCacheInfo({ size: '0 B', cached: 0 }); setModelStatus({ object: { loaded: false, loading: false }, pose: { loaded: false, loading: false }, pose3d: { loaded: false, loading: false }, animal: { loaded: false, loading: false } }); setDetectorKey(k => k + 1); }} className="flex items-center gap-2 px-5 py-2 rounded-xl border border-red-500/30 bg-red-500/20 text-red-400 font-semibold hover:bg-red-500/30 transition-all">
+              <Trash2 className="w-4 h-4" /> Clear
+            </button>
           </div>
         )}
 
-        {mode === 'animal' && (
-          <div style={styles.controlGroup}>
-            <label style={styles.label}>Animal Classes</label>
-            <div style={styles.classGrid}>
-              {['dog', 'cat', 'horse', 'zebra', 'elephant', 'tiger', 'lion', 'panda'].map(cls => (
-                <label key={cls} style={styles.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={selectedAnimalClasses.includes(cls)}
-                    onChange={() => toggleAnimalClass(cls)}
-                  />
-                  {cls}
-                </label>
-              ))}
-            </div>
-            <small style={styles.hint}>
-              {selectedAnimalClasses.length === 0 ? 'All 30 animals' : `${selectedAnimalClasses.length} selected`}
-            </small>
-          </div>
-        )}
-
-        <button
-          onClick={processDetection}
-          style={styles.detectButton}
-        >
-          🚀 Run Detection
-        </button>
-      </div>
-
-      {/* Canvas */}
-      <div style={styles.canvasWrapper}>
-        <canvas ref={canvasRef} style={styles.canvas} width={640} height={480} />
-        <video ref={videoRef} muted style={styles.hiddenVideo} />
-      </div>
-
-      {/* Status badges */}
-      {videoSrc && (
-        <div style={{
-          ...styles.badge,
-          background: isPlaying ? 'linear-gradient(135deg, #00ff88, #00d9ff)' : 'linear-gradient(135deg, #ff4444, #ff6b6b)',
-        }}>
-          {isPlaying ? '🎬 Playing' : '⏸ Paused'}
-        </div>
-      )}
-
-      {mode === 'pose3d' && (
-        <div style={styles.infoBadge}>
-          💡 3D Mode: Z-coordinates in meters
-        </div>
-      )}
-
-      {mode === 'animal' && (
-        <div style={styles.infoBadge}>
-          🦁 Animal Mode: {VITPOSE_MODELS[animalPoseModel].name} ({VITPOSE_MODELS[animalPoseModel].ap} AP)
-        </div>
-      )}
-
-      {/* Stats */}
-      {stats && (
-        <div style={styles.statsGrid}>
-          <div style={styles.statCard}>
-            <div style={styles.statValue}>{stats.count}</div>
-            <div style={styles.statLabel}>Detections</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statValue}>{stats.time}ms</div>
-            <div style={styles.statLabel}>Total Time</div>
-          </div>
-          {stats.detTime && (
-            <div style={styles.statCard}>
-              <div style={styles.statValue}>{stats.detTime}ms</div>
-              <div style={styles.statLabel}>Detection</div>
-            </div>
-          )}
-          {stats.poseTime && (
-            <div style={styles.statCard}>
-              <div style={styles.statValue}>{stats.poseTime}ms</div>
-              <div style={styles.statLabel}>Pose</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Cache */}
-      {cacheInfo && (
-        <div style={styles.cacheBar}>
-          <div style={styles.cacheInfo}>
-            <span>💾 Model Cache:</span>
-            <span style={styles.cacheSize}>{cacheInfo.size}</span>
-            <span style={styles.cacheCount}>({cacheInfo.cached} models)</span>
-          </div>
-          <button
-            onClick={async () => {
-              await clearModelCache();
-              setCacheInfo({ size: '0 B', cached: 0 });
-              setModelStatus({
-                object: { loaded: false, loading: false },
-                pose: { loaded: false, loading: false },
-                pose3d: { loaded: false, loading: false },
-                animal: { loaded: false, loading: false },
-              });
-            }}
-            style={styles.clearButton}
-          >
-            🗑️ Clear Cache
-          </button>
-        </div>
-      )}
-
-      {/* Results */}
-      {detections.length > 0 && (
-        <div style={styles.resultsPanel}>
-          <h3 style={styles.resultsTitle}>📊 Detection Results</h3>
-          <div style={styles.resultsList}>
-            {detections.map((det, idx) => (
-              <div key={idx} style={styles.resultCard}>
-                <div style={styles.resultHeader}>
-                  <span style={styles.resultName}>
-                    {det.className || 'Person'} #{idx + 1}
-                  </span>
-                  <span style={styles.resultConfidence}>
-                    {(det.bbox.confidence * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <div style={styles.resultCoords}>
-                  [{det.bbox.x1.toFixed(0)}, {det.bbox.y1.toFixed(0)}, {det.bbox.x2.toFixed(0)}, {det.bbox.y2.toFixed(0)}]
-                </div>
-                {mode === 'pose3d' && det.keypoints3d && (
-                  <div style={styles.result3d}>
-                    <small>🎯 3D: [{det.keypoints3d[0][0].toFixed(3)}, {det.keypoints3d[0][1].toFixed(3)}, {det.keypoints3d[0][2].toFixed(3)}]m</small>
+        {/* Results */}
+        {detections.length > 0 && (
+          <div className="p-6 glass-card rounded-3xl">
+            <h3 className="text-xl font-bold gradient-text mb-5 flex items-center gap-3">
+              <Activity className="w-6 h-6" /> Detection Results
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {detections.map((det, idx) => (
+                <div key={idx} className="p-5 bg-slate-900/60 rounded-2xl border border-blue-500/20 hover:border-blue-500/40 transition-all glass-card-hover">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-bold text-slate-100">{(det as any).className || 'Person'} #{idx + 1}</span>
+                    <span className="text-green-400 font-bold bg-green-400/15 px-3 py-1 rounded-lg">{(((det as any).bbox?.confidence || 0) * 100).toFixed(1)}%</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  <div className="text-slate-500 font-mono text-sm">[{getBboxValue(det, 'x1')}, {getBboxValue(det, 'y1')}, {getBboxValue(det, 'x2')}, {getBboxValue(det, 'y2')}]</div>
+                  {mode === 'pose3d' && (det as any).keypoints3d && (
+                    <div className="mt-3 p-3 bg-blue-500/15 rounded-xl text-blue-400 font-mono text-sm flex items-center gap-2">
+                      <Box className="w-4 h-4" />
+                      3D: [{(det as any).keypoints3d[0][0].toFixed(3)}, {(det as any).keypoints3d[0][1].toFixed(3)}, {(det as any).keypoints3d[0][2].toFixed(3)}]m
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    maxWidth: 1400,
-    margin: '0 auto',
-    padding: '24px',
-    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
-    minHeight: '100vh',
-  },
-  header: {
-    marginBottom: '32px',
-    padding: '24px 32px',
-    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15))',
-    borderRadius: '20px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    backdropFilter: 'blur(10px)',
-  },
-  headerContent: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: '16px',
-  },
-  title: {
-    fontSize: '32px',
-    fontWeight: '800',
-    background: 'linear-gradient(135deg, #60a5fa, #c084fc)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    margin: '0 0 8px 0',
-  },
-  subtitle: {
-    fontSize: '15px',
-    color: '#94a3b8',
-    margin: 0,
-  },
-  docsButton: {
-    padding: '12px 24px',
-    borderRadius: '12px',
-    border: '1px solid rgba(147, 51, 234, 0.3)',
-    background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(59, 130, 246, 0.2))',
-    color: '#e2e8f0',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '600',
-    transition: 'all 0.2s',
-  },
-  docsPanel: {
-    marginBottom: '32px',
-    padding: '24px',
-    background: 'rgba(30, 41, 59, 0.5)',
-    borderRadius: '16px',
-    border: '1px solid rgba(147, 51, 234, 0.2)',
-  },
-  docsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: '16px',
-  },
-  docCard: {
-    padding: '20px',
-    background: 'rgba(59, 130, 246, 0.1)',
-    borderRadius: '12px',
-    border: '1px solid rgba(59, 130, 246, 0.2)',
-  },
-  docCardTitle: {
-    fontSize: '16px',
-    fontWeight: '700',
-    color: '#e2e8f0',
-    margin: '0 0 8px 0',
-  },
-  docCardText: {
-    fontSize: '14px',
-    color: '#94a3b8',
-    margin: '0 0 12px 0',
-  },
-  code: {
-    display: 'block',
-    padding: '10px 14px',
-    background: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: '8px',
-    fontSize: '12px',
-    color: '#51cf66',
-    fontFamily: '"Fira Code", monospace',
-  },
-  controls: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '20px',
-    marginBottom: '32px',
-    padding: '28px',
-    background: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: '20px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-  },
-  controlGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  label: {
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-  },
-  select: {
-    padding: '14px 18px',
-    borderRadius: '12px',
-    border: '1px solid rgba(255, 255, 255, 0.15)',
-    background: 'rgba(15, 23, 42, 0.8)',
-    color: '#e2e8f0',
-    fontSize: '14px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  buttonGroup: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  button: {
-    padding: '12px 20px',
-    borderRadius: '10px',
-    border: '1px solid rgba(255, 255, 255, 0.15)',
-    background: 'rgba(59, 130, 246, 0.2)',
-    color: '#e2e8f0',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '600',
-    transition: 'all 0.2s',
-  },
-  fileLabel: {
-    display: 'inline-block',
-    padding: '14px 24px',
-    borderRadius: '12px',
-    background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-    color: '#fff',
-    cursor: 'pointer',
-    textAlign: 'center',
-    fontWeight: '600',
-    fontSize: '14px',
-    transition: 'transform 0.2s, box-shadow 0.2s',
-    boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
-  },
-  classGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))',
-    gap: '8px',
-  },
-  checkbox: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '13px',
-    padding: '8px 12px',
-    background: 'rgba(59, 130, 246, 0.1)',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    color: '#e2e8f0',
-    transition: 'background 0.2s',
-  },
-  hint: {
-    color: '#64748b',
-    fontSize: '12px',
-    marginTop: '4px',
-  },
-  detectButton: {
-    gridColumn: '1 / -1',
-    padding: '18px 32px',
-    borderRadius: '14px',
-    border: 'none',
-    background: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)',
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '16px',
-    fontWeight: '700',
-    transition: 'transform 0.2s, box-shadow 0.2s',
-    boxShadow: '0 8px 24px rgba(59, 130, 246, 0.4)',
-  },
-  canvasWrapper: {
-    position: 'relative',
-    borderRadius: '20px',
-    overflow: 'hidden',
-    background: '#0f172a',
-    marginBottom: '24px',
-    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4)',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-  },
-  canvas: {
-    width: '100%',
-    height: 'auto',
-    display: 'block',
-  },
-  hiddenVideo: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 0,
-    height: 0,
-    opacity: 0,
-  },
-  badge: {
-    display: 'inline-block',
-    padding: '10px 20px',
-    borderRadius: '10px',
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: '14px',
-    marginBottom: '16px',
-    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.3)',
-  },
-  infoBadge: {
-    display: 'inline-block',
-    padding: '12px 20px',
-    borderRadius: '12px',
-    background: 'rgba(59, 130, 246, 0.15)',
-    border: '1px solid rgba(59, 130, 246, 0.3)',
-    color: '#60a5fa',
-    marginBottom: '16px',
-    fontSize: '14px',
-    fontWeight: '600',
-  },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-    gap: '16px',
-    marginBottom: '24px',
-  },
-  statCard: {
-    padding: '24px',
-    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15))',
-    borderRadius: '16px',
-    textAlign: 'center',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-  },
-  statValue: {
-    fontSize: '32px',
-    fontWeight: '800',
-    background: 'linear-gradient(135deg, #51cf66, #00d9ff)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    marginBottom: '6px',
-  },
-  statLabel: {
-    fontSize: '13px',
-    color: '#94a3b8',
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-  },
-  cacheBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '20px 24px',
-    background: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: '16px',
-    marginBottom: '24px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-  },
-  cacheInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    fontSize: '14px',
-    color: '#94a3b8',
-  },
-  cacheSize: {
-    color: '#51cf66',
-    fontWeight: '700',
-    fontSize: '16px',
-  },
-  cacheCount: {
-    color: '#64748b',
-    fontSize: '13px',
-  },
-  clearButton: {
-    padding: '10px 20px',
-    borderRadius: '10px',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    background: 'rgba(239, 68, 68, 0.2)',
-    color: '#f87171',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: '600',
-  },
-  resultsPanel: {
-    padding: '28px',
-    background: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: '20px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-  },
-  resultsTitle: {
-    fontSize: '18px',
-    fontWeight: '700',
-    color: '#e2e8f0',
-    margin: '0 0 20px 0',
-  },
-  resultsList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  resultCard: {
-    padding: '18px 20px',
-    background: 'rgba(15, 23, 42, 0.6)',
-    borderRadius: '12px',
-    border: '1px solid rgba(59, 130, 246, 0.2)',
-    transition: 'border-color 0.2s',
-  },
-  resultHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '8px',
-  },
-  resultName: {
-    fontSize: '15px',
-    fontWeight: '700',
-    color: '#e2e8f0',
-  },
-  resultConfidence: {
-    fontSize: '14px',
-    fontWeight: '700',
-    color: '#51cf66',
-    background: 'rgba(81, 207, 102, 0.15)',
-    padding: '4px 12px',
-    borderRadius: '6px',
-  },
-  resultCoords: {
-    fontSize: '13px',
-    color: '#64748b',
-    fontFamily: '"Fira Code", monospace',
-  },
-  result3d: {
-    marginTop: '10px',
-    padding: '10px 14px',
-    background: 'rgba(59, 130, 246, 0.15)',
-    borderRadius: '8px',
-    color: '#60a5fa',
-    fontFamily: '"Fira Code", monospace',
-    fontSize: '13px',
-  },
-  loadingScreen: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '80vh',
-    gap: '24px',
-  },
-  spinner: {
-    width: '60px',
-    height: '60px',
-    border: '4px solid rgba(59, 130, 246, 0.2)',
-    borderTop: '4px solid #3b82f6',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
-  loadingTitle: {
-    fontSize: '24px',
-    fontWeight: '700',
-    color: '#e2e8f0',
-    margin: '0 0 8px 0',
-  },
-  loadingText: {
-    fontSize: '15px',
-    color: '#94a3b8',
-    margin: 0,
-  },
-  errorScreen: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '80vh',
-    gap: '24px',
-  },
-  errorIcon: {
-    fontSize: '48px',
-  },
-  errorTitle: {
-    fontSize: '24px',
-    fontWeight: '700',
-    color: '#f87171',
-    margin: '0 0 8px 0',
-  },
-  errorText: {
-    fontSize: '15px',
-    color: '#94a3b8',
-    margin: '0 0 20px 0',
-    textAlign: 'center',
-    maxWidth: '400px',
-  },
-  retryButton: {
-    padding: '14px 32px',
-    borderRadius: '12px',
-    border: 'none',
-    background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '16px',
-    fontWeight: '700',
-    boxShadow: '0 8px 24px rgba(59, 130, 246, 0.4)',
-  },
-};
