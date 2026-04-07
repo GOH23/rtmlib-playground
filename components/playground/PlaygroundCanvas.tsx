@@ -40,7 +40,9 @@ export function PlaygroundCanvas({
       {/* Video file */}
       {videoSrc && !useCamera && (
         <video
+          key={`video-${videoSrc}`}
           ref={videoRef}
+          src={videoSrc}
           muted
           loop
           playsInline

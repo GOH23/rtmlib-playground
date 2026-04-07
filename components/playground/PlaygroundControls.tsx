@@ -1,9 +1,10 @@
 'use client';
 
 import {
-  Search, User, Box, PawPrint, Zap, Video, Play, Square,
+  Search, User, Box, PawPrint, Zap, Video,
   Upload, Cpu, Gauge, Layers, Camera, Target,
-  Monitor, Aperture, Terminal, Brain, BoxSelect, ScanFace, Loader2
+  Monitor, Aperture, Terminal, Brain, BoxSelect, ScanFace, Loader2,
+  Image as ImageIcon, FileVideo
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import { ClassSelector } from './ClassSelector';
@@ -20,8 +21,7 @@ export interface PlaygroundControlsProps {
   selectedAnimalClasses: string[];
   useCamera: boolean;
   videoSrc: string | null;
-  isPlaying: boolean;
-  processEveryNFrames: number;
+  imageSrc: string | null;
   modelLoaded: boolean;
   isDetecting: boolean;
   onModeChange: (v: DetectionMode) => void;
@@ -29,11 +29,8 @@ export interface PlaygroundControlsProps {
   onPerfModeChange: (v: PerfMode) => void;
   onBackendChange: (v: Backend) => void;
   onAnimalPoseModelChange: (v: AnimalPoseModel) => void;
-  onProcessEveryNFramesChange: (v: number) => void;
   onUseCameraChange: (v: boolean) => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onStartVideo: () => void;
-  onStopVideo: () => void;
   onRunDetection: () => void;
   onToggleClass: (cls: string) => void;
   onSelectAllClasses: () => void;
@@ -44,11 +41,10 @@ export interface PlaygroundControlsProps {
 export function PlaygroundControls({
   mode, detectorType, perfMode, backend, animalPoseModel,
   selectedClasses, selectedAnimalClasses,
-  useCamera, videoSrc, isPlaying, processEveryNFrames,
+  useCamera, videoSrc, imageSrc,
   modelLoaded, isDetecting,
   onModeChange, onDetectorTypeChange, onPerfModeChange, onBackendChange,
-  onAnimalPoseModelChange, onProcessEveryNFramesChange,
-  onUseCameraChange, onFileUpload, onStartVideo, onStopVideo, onRunDetection,
+  onAnimalPoseModelChange, onUseCameraChange, onFileUpload, onRunDetection,
   onToggleClass, onSelectAllClasses, onDeselectAllClasses, onToggleAnimalClass,
 }: PlaygroundControlsProps) {
   const backendOptions = [
@@ -125,24 +121,6 @@ export function PlaygroundControls({
         />
       </div>
 
-      {/* Frame Skip */}
-      {(useCamera || videoSrc) && (
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Frame Skip</label>
-          <CustomSelect
-            value={String(processEveryNFrames)}
-            onChange={(v) => onProcessEveryNFramesChange(Number(v))}
-            options={[
-              { value: '1', label: 'Every frame' },
-              { value: '2', label: 'Every 2nd frame' },
-              { value: '3', label: 'Every 3rd (recommended)' },
-              { value: '4', label: 'Every 4th frame' },
-              { value: '5', label: 'Every 5th frame' },
-            ]}
-          />
-        </div>
-      )}
-
       {/* Animal Model */}
       {mode === 'animal' && (
         <div className="flex flex-col gap-2">
@@ -159,25 +137,76 @@ export function PlaygroundControls({
       )}
 
       {/* Input Source */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3 sm:col-span-2 lg:col-span-3 xl:col-span-4">
         <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
           <Video className="w-4 h-4" /> Input Source
         </label>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => onUseCameraChange(!useCamera)} className={`flex items-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all ${useCamera ? 'bg-gradient-to-r from-cyan-400 to-green-400 text-slate-900' : 'bg-blue-500/20 text-slate-100 border border-white/15'}`}>
-            <Camera className="w-4 h-4" /> {useCamera ? 'On' : 'Camera'}
+        
+        {/* Source type selector */}
+        <div className="flex gap-2 p-1.5 bg-slate-800/50 rounded-xl">
+          <button 
+            onClick={() => onUseCameraChange(false)} 
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold transition-all flex-1 ${
+              !useCamera && !videoSrc 
+                ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
+                : 'text-slate-300 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" />
+            Image
           </button>
-          {videoSrc && (
-            <button onClick={isPlaying ? onStopVideo : onStartVideo} className={`flex items-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all ${isPlaying ? 'bg-gradient-to-r from-green-400 to-cyan-400 text-slate-900' : 'bg-gradient-to-r from-cyan-400 to-green-400 text-slate-900'}`}>
-              {isPlaying ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              {isPlaying ? 'Stop' : 'Play'}
-            </button>
-          )}
+          <button 
+            onClick={() => onUseCameraChange(false)} 
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold transition-all flex-1 ${
+              videoSrc 
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' 
+                : 'text-slate-300 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <FileVideo className="w-4 h-4" />
+            Video
+          </button>
+          <button 
+            onClick={() => onUseCameraChange(!useCamera)} 
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold transition-all flex-1 ${
+              useCamera 
+                ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg' 
+                : 'text-slate-300 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Camera className="w-4 h-4" />
+            Camera
+          </button>
         </div>
-        <label className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl text-center cursor-pointer hover:shadow-lg hover:shadow-blue-500/25 transition-all text-sm">
-          <Upload className="w-4 h-4" /> Upload
+
+        {/* Upload button */}
+        <label className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl cursor-pointer hover:shadow-lg hover:shadow-blue-500/25 transition-all text-sm">
+          <Upload className="w-4 h-4" /> 
+          {videoSrc ? 'Upload New Video' : imageSrc ? 'Upload New Image' : 'Upload File'}
           <input type="file" accept="image/*,video/*" onChange={onFileUpload} className="hidden" />
         </label>
+
+        {/* Current source indicator */}
+        {(videoSrc || imageSrc || useCamera) && (
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-800/30 rounded-lg border border-white/10">
+            {videoSrc ? (
+              <>
+                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="text-sm text-slate-300">Video loaded</span>
+              </>
+            ) : imageSrc ? (
+              <>
+                <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                <span className="text-sm text-slate-300">Image loaded</span>
+              </>
+            ) : useCamera ? (
+              <>
+                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-sm text-slate-300">Camera active</span>
+              </>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* Object Classes */}

@@ -21,7 +21,6 @@ export function useDetector() {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
-  const frameCountRef = useRef(0);
 
   const [objectDetector, setObjectDetector] = useState<any>(null);
   const [poseDetector, setPoseDetector] = useState<any>(null);
@@ -29,7 +28,7 @@ export function useDetector() {
   const [animalDetector, setAnimalDetector] = useState<any>(null);
 
   const [mode, setMode] = useState<DetectionMode>('object');
-  const [detectorType, setDetectorType] = useState<DetectorType>('yolo');
+  const [detectorType, setDetectorType] = useState<DetectorType>('mediapipe');
   const [perfMode, setPerfMode] = useState<PerfMode>('balanced');
   const [backend, setBackend] = useState<Backend>(() => {
     if (typeof navigator !== 'undefined' && (navigator as any).gpu) return 'webgpu';
@@ -43,10 +42,10 @@ export function useDetector() {
   const [useCamera, setUseCamera] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef(false);
+  const [isPlaying, setIsPlaying] = useState(false); // For UI only
   const [detectionInterval, setDetectionInterval] = useState<NodeJS.Timeout | null>(null);
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
-  const [processEveryNFrames, setProcessEveryNFrames] = useState(3);
   const [isDetecting, setIsDetecting] = useState(false);
 
   const [modelStatus, setModelStatus] = useState<Record<string, ModelStatus>>({
@@ -67,6 +66,39 @@ export function useDetector() {
     loadCacheInfo();
   }, []);
 
+  // Auto-set default detector type and backend when mode changes
+  useEffect(() => {
+    if (mode === 'pose') {
+      setDetectorType('mediapipe');
+      // MediaPipe works best with WASM
+      setBackend('wasm');
+    } else if (mode === 'pose3d') {
+      setDetectorType('mediapipe-rtmw3d');
+      // MediaPipe RTMW3D with WebGPU for best performance
+      if (typeof navigator !== 'undefined' && (navigator as any).gpu) {
+        setBackend('webgpu');
+      } else {
+        setBackend('webgl');
+      }
+    } else if (mode === 'object') {
+      setDetectorType('yolo');
+      // YOLO with WebGPU for best performance
+      if (typeof navigator !== 'undefined' && (navigator as any).gpu) {
+        setBackend('webgpu');
+      } else {
+        setBackend('webgl');
+      }
+    } else if (mode === 'animal') {
+      setDetectorType('yolo');
+      // Animal detection with WebGPU
+      if (typeof navigator !== 'undefined' && (navigator as any).gpu) {
+        setBackend('webgpu');
+      } else {
+        setBackend('webgl');
+      }
+    }
+  }, []); // Only run on mount to avoid overriding user selection
+
   // Init detector with fallback
   const initDetectorWithFallback = useCallback(async (mode: DetectionMode) => {
     try {
@@ -74,7 +106,7 @@ export function useDetector() {
       const be: 'wasm' | 'webgpu' = 'wasm';
       if (mode === 'object') detector = new ObjectDetector({ classes: selectedClasses.length > 0 ? selectedClasses : null, mode: perfMode, backend: be, confidence: 0.3, cache: true });
       else if (mode === 'pose') detector = new PoseDetector({ detConfidence: 0.5, poseConfidence: 0.3, backend: be, cache: true });
-      else if (mode === 'pose3d') detector = new Pose3DDetector({ detConfidence: 0.45, poseConfidence: 0.3, backend: be, cache: true, detectorType: detectorType === 'mediapipe-rtmw3d' ? 'mediapipe-rtmw3d' : 'yolo-rtmw3d' });
+      else if (mode === 'pose3d') detector = new Pose3DDetector({ detConfidence: 0.45, poseConfidence: 0.3, backend: "webgl", cache: true, detectorType: detectorType === 'mediapipe-rtmw3d' ? 'mediapipe-rtmw3d' : 'yolo-rtmw3d' });
       else if (mode === 'animal') detector = new AnimalDetector({ classes: selectedAnimalClasses.length > 0 ? selectedAnimalClasses : null, poseModelType: animalPoseModel, detConfidence: 0.5, poseConfidence: 0.3, backend: be, cache: true });
       await detector.init();
       if (mode === 'object') setObjectDetector(detector);
@@ -171,6 +203,13 @@ export function useDetector() {
     setDetectorKey(k => k + 1);
   }, [detectorType]);
 
+  // Keep video playing after React re-renders
+  useEffect(() => {
+    if (isPlaying && videoRef.current && videoRef.current.paused && !videoRef.current.ended) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isPlaying]);
+
   // Camera setup
   useEffect(() => {
     async function setupCamera() {
@@ -204,7 +243,13 @@ export function useDetector() {
   // Cleanup
   const stopDetectionLoop = useCallback(() => {
     if (detectionInterval) {
-      clearInterval(detectionInterval);
+      // New style: cancel the async loop
+      if ('cancel' in detectionInterval) {
+        (detectionInterval as any).cancel();
+      } else {
+        // Old style: clear interval
+        clearInterval(detectionInterval as NodeJS.Timeout);
+      }
       setDetectionInterval(null);
     }
     if (videoRef.current) videoRef.current.pause();
@@ -257,8 +302,8 @@ export function useDetector() {
     });
   }, []);
 
-  // Main detection process
-  const processDetection = useCallback(async () => {
+  // Core detection - single frame processing
+  const processDetectionCore = useCallback(async () => {
     if (!canvasRef.current || !overlayRef.current) {
       console.error('[Playground] Canvas not ready');
       return;
@@ -267,9 +312,6 @@ export function useDetector() {
       console.error('[Playground] Model not loaded');
       return;
     }
-    if (isDetecting) return;
-
-    if ((useCamera || videoSrc) && frameCountRef.current++ % processEveryNFrames !== 0) return;
 
     const canvas = canvasRef.current, overlay = overlayRef.current;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -342,11 +384,92 @@ export function useDetector() {
       setDetections(results);
       setStats({ time: Math.round(performance.now() - startTime), count: results.length, detTime: detStats?.detTime, poseTime: detStats?.poseTime });
     } catch (error) {
-      console.error('[Playground] Detection error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Playground] Detection error:', errorMessage);
     } finally {
-      setIsDetecting(false);
+      setIsDetecting(false); // Reset button state
     }
-  }, [mode, useCamera, videoSrc, imageSrc, isDetecting, processEveryNFrames, objectDetector, poseDetector, pose3DDetector, animalDetector, modelStatus, process3DResult, drawAnimalResults]);
+  }, [mode, useCamera, videoSrc, imageSrc, objectDetector, poseDetector, pose3DDetector, animalDetector, modelStatus, process3DResult, drawAnimalResults]);
+
+  // Main detection - auto-starts video/camera loops
+  const processDetection = useCallback(async () => {
+    // Auto-start video playback and detection loop
+    if (videoSrc && !useCamera && !isPlayingRef.current) {
+      if (!videoRef.current || !videoSrc) return;
+      try {
+        // Reset to beginning if needed
+        if (videoRef.current.currentTime > 0 || videoRef.current.ended) {
+          videoRef.current.currentTime = 0;
+        }
+
+        // Wait a tick for currentTime to apply
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        if (canvasRef.current && videoRef.current) {
+          canvasRef.current.width = videoRef.current.videoWidth || 640;
+          canvasRef.current.height = videoRef.current.videoHeight || 480;
+        }
+
+        await videoRef.current.play();
+
+        // Update ref first (doesn't cause re-render)
+        isPlayingRef.current = true;
+        // Then update state for UI
+        setIsPlaying(true);
+
+        // Use sequential detection loop - wait for each detection to finish before starting next
+        // This prevents "Session already started" error while keeping continuous detection
+        let cancelled = false;
+        const detectionLoop = async () => {
+          while (!cancelled && videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
+            // Wait for detection to complete
+            await processDetectionCore();
+            // Small delay to prevent tight loop
+            await new Promise(resolve => setTimeout(resolve, 16)); // ~60fps cap
+          }
+          
+          if (cancelled || !videoRef.current || videoRef.current.paused || videoRef.current.ended) {
+            isPlayingRef.current = false;
+            setIsPlaying(false);
+          }
+        };
+        
+        detectionLoop();
+        setDetectionInterval({ cancel: () => { cancelled = true; } } as any);
+      } catch (e) {
+        console.error('[Playground] Failed to start video:', e);
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+      }
+      return;
+    }
+
+    // Auto-start camera detection loop
+    if (useCamera && !isPlayingRef.current) {
+      isPlayingRef.current = true;
+      setIsPlaying(true);
+      
+      let cancelled = false;
+      const detectionLoop = async () => {
+        while (!cancelled && videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
+          await processDetectionCore();
+          await new Promise(resolve => setTimeout(resolve, 16));
+        }
+        
+        if (cancelled || !videoRef.current || videoRef.current.paused || videoRef.current.ended) {
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+        }
+      };
+      
+      detectionLoop();
+      setDetectionInterval({ cancel: () => { cancelled = true; } } as any);
+      return;
+    }
+
+    // Single frame detection (image or manual trigger)
+    await processDetectionCore();
+  }, [videoSrc, useCamera, processDetectionCore]);
 
   // File upload
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -361,13 +484,13 @@ export function useDetector() {
   const startVideoDetection = useCallback(async () => {
     if (!videoRef.current || !videoSrc) return;
     try {
-      videoRef.current.src = videoSrc; videoRef.current.load();
+      videoRef.current.load();
       await new Promise((resolve) => { const t = setTimeout(resolve, 5000); videoRef.current!.addEventListener('loadeddata', () => { clearTimeout(t); resolve(true); }, { once: true }); });
       if (canvasRef.current && videoRef.current) { canvasRef.current.width = videoRef.current.videoWidth || 640; canvasRef.current.height = videoRef.current.videoHeight || 480; }
       await videoRef.current.play(); setIsPlaying(true);
-      setDetectionInterval(setInterval(() => { if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) processDetection(); }, 100));
+      setDetectionInterval(setInterval(() => { if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) processDetectionCore(); }, 100));
     } catch { setIsPlaying(false); }
-  }, [videoSrc, processDetection]);
+  }, [videoSrc, processDetectionCore]);
 
   // Class selection helpers
   const toggleClass = useCallback((cls: string) => setSelectedClasses(prev => prev.includes(cls) ? prev.filter(c => c !== cls) : [...prev, cls]), []);
@@ -389,12 +512,12 @@ export function useDetector() {
       mode, detectorType, perfMode, backend, animalPoseModel,
       selectedClasses, selectedAnimalClasses, detections, stats,
       useCamera, videoSrc, imageSrc, isPlaying, cacheInfo,
-      processEveryNFrames, isDetecting, modelStatus,
+      isDetecting, modelStatus,
     },
     actions: {
       setMode, setDetectorType, setPerfMode, setBackend, setAnimalPoseModel,
       setSelectedClasses, setSelectedAnimalClasses, setUseCamera, setVideoSrc, setImageSrc,
-      setIsPlaying, setProcessEveryNFrames, setIsDetecting,
+      setIsPlaying, setIsDetecting,
       toggleClass, toggleAnimalClass, selectAllClasses, deselectAllClasses,
       handleFileUpload, startVideoDetection, stopDetectionLoop, processDetection,
       clearCache, setDetectorKey,

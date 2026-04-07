@@ -110,8 +110,7 @@ export default function PlaygroundContent() {
           selectedAnimalClasses={state.selectedAnimalClasses}
           useCamera={state.useCamera}
           videoSrc={state.videoSrc}
-          isPlaying={state.isPlaying}
-          processEveryNFrames={state.processEveryNFrames}
+          imageSrc={state.imageSrc}
           modelLoaded={currentModelStatus.loaded}
           isDetecting={state.isDetecting}
           onModeChange={actions.setMode}
@@ -119,11 +118,8 @@ export default function PlaygroundContent() {
           onPerfModeChange={actions.setPerfMode}
           onBackendChange={actions.setBackend}
           onAnimalPoseModelChange={actions.setAnimalPoseModel}
-          onProcessEveryNFramesChange={actions.setProcessEveryNFrames}
           onUseCameraChange={actions.setUseCamera}
           onFileUpload={actions.handleFileUpload}
-          onStartVideo={actions.startVideoDetection}
-          onStopVideo={actions.stopDetectionLoop}
           onRunDetection={actions.processDetection}
           onToggleClass={actions.toggleClass}
           onSelectAllClasses={actions.selectAllClasses}
