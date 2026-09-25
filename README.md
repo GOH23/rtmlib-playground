@@ -1,6 +1,8 @@
 # rtmlib-ts Playground
 
-Interactive Next.js app for testing rtmlib-ts library features.
+Interactive Next.js playground for **rtmlib-ts 0.1.0** — object detection, 2D/3D pose estimation, and animal pose in the browser on all four ONNX Runtime Web backends (WASM, WebGL, WebGPU, WebNN).
+
+The UI is a faithful port of the standalone Vite demo (`demo/main.ts` from the rtmlib-ts repo): the whole page is built by `components/playground/demo-app.ts`, mounted from a small React wrapper.
 
 ## Quick Start
 
@@ -15,88 +17,58 @@ npm run dev
 http://localhost:3000
 ```
 
-## Features
+> Fixture photos/videos live in the top-level `examples/` directory and are served at `/examples/*` by `app/examples/[...path]/route.ts` (with HTTP range support for video seeking). No media is copied into `public/`.
 
-### Object Detection
-- Detect any of 80 COCO classes
-- Filter by specific classes (person, car, dog, etc.)
-- Real-time camera support
-- Image upload
+## Tabs
 
-### Pose Estimation
-- 17 keypoints per person
-- Skeleton visualization
-- Real-time camera support
-- Image upload
+| Tab | Pipeline | Models |
+| --- | --- | --- |
+| **Object** | YOLO (`ObjectDetector`) and MediaPipe EfficientDet-Lite0 | yolov8n / yolov12n / yolo26n, TFLite |
+| **Pose 2D** | YOLO → RTMW | 17 COCO keypoints, 2D skeleton |
+| **Pose 3D** | `objectModel` × `pose3dModel` (8 combos) | yolov8n / yolov12n / yolo26n / mediapipe × rtmw3d / instanthmr |
+| **Animal** | YOLO12 → ViTPose++ | 30 species, `vitpose-s` / `-b` / `-l` |
 
-## Usage
+Each card has its own model + backend selectors and an **Initialize & run** button. Nothing is downloaded until you pick a model and click it. Tabs are mounted lazily; the Object tab stays warm, the others dispose their detectors when you switch away.
 
-1. **Select Mode**: Choose between Object Detection or Pose Estimation
-2. **Choose Input**: 
-   - Click "Use Camera" for live detection
-   - Click "Upload Image" to process a file
-3. **Select Classes** (Object Detection only):
-   - Check specific classes to detect
-   - Uncheck all to detect all 80 classes
-4. **Click Detect**: Run inference and see results
+### Pose 3D extras
 
+- **Photo card** — single-frame detection with per-stage profiling (`Det`, `Infer`, `Post`).
+- **Video card** — continuous `requestVideoFrameCallback` loop after the photo card is ready, live FPS, and a **three.js picture-in-picture** that renders the same 3D skeleton (COCO17 or MHR70 mesh) with OrbitControls.
 
+### Fixtures
+
+- Photos: `photo_detect_pose_3d.png`, `pose_soccer.png` (3 players)
+- Videos: `dance_detect_pose_3d.mp4`, `dance_multiply.mp4` (multi-person)
+- **Drag & drop** any image/video anywhere on the page to add it as a fixture for the current session.
 
 ## Tech Stack
 
-- **Framework**: Next.js 15 (App Router)
-- **Library**: rtmlib-ts
-- **Backend**: ONNX Runtime Web (WASM)
-- **Styling**: Inline CSS (no dependencies)
+- **Framework**: Next.js 16 (App Router)
+- **Library**: `rtmlib-ts@^0.1.0`
+- **Runtime**: ONNX Runtime Web (transitive via rtmlib-ts); COOP/COEP headers enable threaded WASM
+- **3D view**: three.js
+- **Styling**: plain CSS (`app/globals.css`, ported 1:1 from the demo's tokens)
 
-## Code Example
+## Project Layout
 
-```typescript
-import { ObjectDetector, PoseDetector } from 'rtmlib-ts';
-
-// Object Detection
-const detector = new ObjectDetector({
-  model: '/models/yolo/yolov12n.onnx',
-  classes: ['person', 'car'],
-});
-await detector.init();
-const objects = await detector.detectFromCanvas(canvas);
-
-// Pose Estimation
-const poseDetector = new PoseDetector({
-  detModel: '/models/yolo/yolov12n.onnx',
-  poseModel: '/models/rtmpose/end2end.onnx',
-});
-await poseDetector.init();
-const people = await poseDetector.detectFromCanvas(canvas);
+```
+app/
+  layout.tsx                  # metadata + telemetry block script
+  globals.css                 # demo styles (light/dark theme tokens)
+  page.tsx                    # client-only mount
+  examples/[...path]/route.ts # streams fixtures from ../../examples
+components/playground/
+  demo-app.ts                 # ported demo: panels, drag & drop, 3D viewer
+  PlaygroundContent.tsx       # static shell (header/hintbar/footer) + mount effect
+demo/                         # original standalone Vite demo (reference)
+examples/                     # fixture images/videos
 ```
 
-## Performance
+## Notes
 
-Expected inference times (varies by device):
-
-| Mode | Input | Time |
-|------|-------|------|
-| Object (WASM) | 640×640 | ~80ms |
-| Object (WebGPU) | 640×640 | ~30ms |
-| Pose (WASM) | 640×640 | ~150ms |
-| Pose (WebGPU) | 640×640 | ~60ms |
-
-## Troubleshooting
-
-### "Models not found"
-- Ensure models are in `public/models/`
-- Check browser console for 404 errors
-
-### "Camera not working"
-- Grant camera permissions
-- Use HTTPS or localhost
-- Check browser compatibility
-
-### "Slow inference"
-- Switch to WebGPU backend in code
-- Reduce input size
-- Use fewer classes
+- The `demo/` folder is the original reference implementation and is excluded from `tsconfig` / ESLint; it is not bundled.
+- `node_modules/rtmlib-ts/dist/core/instanthmrGeometry` is imported directly for the MHR70 skeleton edges used by the three.js viewer.
+- Model weights load from HuggingFace on first use and are cached via the library's Cache API support.
 
 ## License
 
